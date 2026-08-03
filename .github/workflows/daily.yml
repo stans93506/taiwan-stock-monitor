@@ -1,0 +1,38 @@
+name: 每日更新台股監測
+
+on:
+  schedule:
+    # 每天 19:00 台灣時間（= UTC 11:00）自動執行
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+    # 也可以在 GitHub 網頁手動觸發
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 取得程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安裝套件
+        run: pip install -r requirements.txt
+
+      - name: 執行監測腳本
+        run: python fetch_revenue.py
+
+      - name: 複製為 index.html（供 GitHub Pages 使用）
+        run: cp 台股監測.html index.html
+
+      - name: 將更新結果 commit 回 repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html 台股監測.html *.json
+          git diff --cached --quiet || git commit -m "自動更新：$(date '+%Y-%m-%d %H:%M') UTC"
+          git push

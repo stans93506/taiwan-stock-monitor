@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.png
+
+# debug 用檔案
+debug_*.py
+debug_*.html
+etf_test.html
+etf_tracker.py
+app.py
+debug.py
+
+# 本機 HTML（Actions 會自己產生）
+台股監測.html
+index.html
