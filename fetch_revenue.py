@@ -6191,6 +6191,11 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ 執行錯誤：{e}")
 
+        # GitHub Actions / CI 環境：跑一次就結束
+        if os.environ.get("GITHUB_ACTIONS") or os.environ.get("CI"):
+            print("\n[CI 模式] 單次執行完畢，結束。")
+            break
+
         next_time = (now.replace(second=0, microsecond=0) +
                      timedelta(minutes=INTERVAL_MIN))
         print(f"\n⏱  {INTERVAL_MIN} 分鐘後自動更新（下次約 {next_time.strftime('%H:%M')}）"
