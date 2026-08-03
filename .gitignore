@@ -6,7 +6,6 @@ __pycache__/
 debug_*.py
 debug_*.html
 etf_test.html
-etf_tracker.py
 app.py
 debug.py
 
