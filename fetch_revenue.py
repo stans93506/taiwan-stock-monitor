@@ -4139,7 +4139,7 @@ $(document).ready(function() {{
   // ── 季報表 ──
   if($('#qtrTable').length) {{
     var qtrT = $('#qtrTable').DataTable({{
-      pageLength: 50,
+      paging: false,
       order: [[4,'desc']],
       orderFixed: {{ pre: [[0,'asc']] }},
       columnDefs: [{{ targets:0, visible:false, searchable:false }}],
@@ -4183,7 +4183,7 @@ $(document).ready(function() {{
   // ── 庫藏股表 ──
   if($('#trsTable').length) {{
     var trsT = $('#trsTable').DataTable({{
-      pageLength: 50,
+      paging: false,
       order: [[0,'asc'],[4,'desc']],
       columnDefs: [
         {{ targets:0, visible:false, searchable:false }},
@@ -4220,7 +4220,7 @@ $(document).ready(function() {{
   // ── 事件表 ──
   if($('#eventTable').length) {{
     var evtT = $('#eventTable').DataTable({{
-      pageLength: 50,
+      paging: false,
       order: [[0,'asc']],
       language: {{ search:'搜尋：', lengthMenu:'每頁 _MENU_ 筆', info:'第 _START_-_END_ 筆，共 _TOTAL_ 筆',
         paginate:{{first:'首頁',last:'末頁',next:'下頁',previous:'上頁'}}, zeroRecords:'無資料' }},
@@ -4355,7 +4355,7 @@ $(document).ready(function() {{
   // ── 現增表 ──
   if($('#spoTable').length) {{
     $('#spoTable').DataTable({{
-      pageLength: 50,
+      paging: false,
       order: [[3,'desc']],
       language: {{ search:'搜尋：', lengthMenu:'每頁 _MENU_ 筆', info:'第 _START_-_END_ 筆，共 _TOTAL_ 筆',
                    zeroRecords:'暫無現增公告', paginate:{{ first:'«',last:'»',next:'>',previous:'<' }} }},
