@@ -4522,7 +4522,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                   etf_html: str = "",
                   df_spo: pd.DataFrame = None,
                   rev_hist_cache: dict = None) -> str:
-    updated = datetime.now().strftime("%Y-%m-%d %H:%M")
+    updated = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
     rev_period      = f"民國 {roc_year} 年 {month} 月"
     rev_period_disp = f"{roc_year + 1911}/{month:02d}"   # e.g. "2026/05"
 
