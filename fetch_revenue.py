@@ -1823,7 +1823,7 @@ def fetch_prev_quarter_data() -> dict:
     QTR_EXCLUDE = ["更正", "補正", "iXBRL", "XBRL", "重編", "申報資訊",
                    "核閱報告", "未於規定期限", "除息", "不分派", "股利",
                    "負債比率", "流動比率", "速動比率",
-                   "年度財務", "年度合併財務",  # 排除年報（年度第X季財務報告不含此 substring）
+                   "年度財務",  # 排除年報（"年度合併財務"已移除，避免誤排"上半年度合併財務"）
                    "自結"]   # 排除月自結財務報告（非季報）
 
     JS_EXTRACT = """
@@ -5057,7 +5057,7 @@ def fetch_t05st02() -> tuple:
     QTR_EXCLUDE = ["更正", "補正", "iXBRL", "XBRL", "重編", "申報資訊",
                    "核閱報告", "未於規定期限", "除息", "不分派", "股利",
                    "負債比率", "流動比率", "速動比率",
-                   "年度財務", "年度合併財務",  # 排除年報（年度第X季財務報告不含此 substring）
+                   "年度財務",  # 排除年報（"年度合併財務"已移除，避免誤排"上半年度合併財務"）
                    "自結"]   # 排除月自結財務報告（非季報）
     TRS_KW      = ["買回庫藏股", "買回本公司股份", "買回本公司普通股", "買回公司股份", "買回庫藏", "庫藏股買回"]   # 必須含其中一個
     TRS_REQUIRE = ["決議", "通過"]                              # 且必須含「決議」或「通過」
@@ -5172,7 +5172,7 @@ def fetch_t05st02() -> tuple:
             seasonal02 = [r for r in rows02
                           if r.get("typek", "").strip() not in ("emg", "rotc")
                           and any(k in r["desc"] for k in QTR_KW)
-                          and ("季" in r["desc"] or "上半年" in r["desc"])
+                          and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"])
                           and not any(x in r["desc"] for x in QTR_EXCLUDE)]
             treasury02 = [r for r in rows02
                           if r.get("typek", "").strip() not in ("emg", "rotc")
@@ -5329,7 +5329,7 @@ def fetch_t05st02() -> tuple:
                                  and (
                                      (r.get("typek","").strip() not in ("emg","rotc")
                                       and any(k in r["desc"] for k in QTR_KW)
-                                      and ("季" in r["desc"] or "上半年" in r["desc"])
+                                      and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"])
                                       and not any(x in r["desc"] for x in QTR_EXCLUDE))
                                      or
                                      (r.get("typek","").strip() not in ("emg","rotc")
@@ -5406,7 +5406,7 @@ def fetch_t05st02() -> tuple:
                     seasonal01 = [r for r in rows01
                                   if r.get("typek", "").strip() not in ("emg", "rotc")
                                   and any(k in r["desc"] for k in QTR_KW)
-                                  and ("季" in r["desc"] or "上半年" in r["desc"])
+                                  and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"])
                                   and not any(x in r["desc"] for x in QTR_EXCLUDE)]
                     treasury01 = [r for r in rows01
                                   if r.get("typek", "").strip() not in ("emg", "rotc")
@@ -5447,7 +5447,7 @@ def fetch_t05st02() -> tuple:
     seasonal_rows = [r for r in all_rows
                      if r.get("typek", "").strip() not in ("emg", "rotc")
                      and any(k in r["desc"] for k in QTR_KW)
-                     and ("季" in r["desc"] or "上半年" in r["desc"])
+                     and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"])
                      and not any(x in r["desc"] for x in QTR_EXCLUDE)]
     treasury_rows = [r for r in all_rows
                      if r.get("typek", "").strip() not in ("emg", "rotc")
