@@ -1,10 +1,10 @@
-name: 每日更新台股監測
+﻿name: 瘥?湔?啗??葫
 
 on:
   schedule:
-    - cron: '30 */2 * * *'  # 每兩小時執行一次（UTC :30分），全天共12次
+    - cron: '30 */2 * * *'  # 瘥撠??瑁?銝甈∴?UTC :30??嚗憭拙12甈?
   workflow_dispatch:
-    # 也可以在 GitHub 網頁手動觸發
+    # 銋隞亙 GitHub 蝬脤???閫貊
 
 jobs:
   update:
@@ -13,27 +13,28 @@ jobs:
       contents: write
 
     steps:
-      - name: 取得程式碼
+      - name: ??蝔?蝣?
         uses: actions/checkout@v4
 
-      - name: 設定 Python
+      - name: 閮剖? Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 安裝套件
+      - name: 摰?憟辣
         run: pip install -r requirements.txt
 
-      - name: 執行監測腳本
+      - name: ?瑁???葫?單
         run: python fetch_revenue.py
 
-      - name: 複製為 index.html（供 GitHub Pages 使用）
-        run: cp 台股監測.html index.html
+      - name: 銴ˊ??index.html嚗? GitHub Pages 雿輻嚗?
+        run: cp ?啗??葫.html index.html
 
-      - name: 將更新結果 commit 回 repo
+      - name: 撠?啁???commit ??repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f index.html 台股監測.html *.json
-          git diff --cached --quiet || git commit -m "自動更新：$(date '+%Y-%m-%d %H:%M') UTC"
+          git add -f index.html ?啗??葫.html *.json
+          git diff --cached --quiet || git commit -m "?芸??湔嚗?(date '+%Y-%m-%d %H:%M') UTC"
+          git pull --rebase origin main || true
           git push
