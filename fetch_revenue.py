@@ -150,19 +150,26 @@ def get_latest_month():
     return roc_year, month
 
 
+REV_SKIP_CODES = {
+    "1436", "2071", "3473", "4575", "6599",
+    "6729", "6816", "7752", "7781", "7872",
+    "7919",
+}
+
 LISTED_CODES_APIS = [
     "https://openapi.twse.com.tw/v1/opendata/t51sb01",           # 上市
     "https://www.tpex.org.tw/openapi/v1/mopsfin_t51sb01_O",      # 上櫃
 ]
 
 def get_valid_codes() -> set:
-    """從官方 API 取得合法上市+上櫃股票代碼，失敗時回傳空集合（不過濾）"""
+    """從官方月營收 API 取得合法上市+上櫃股票代碼，失敗時回傳空集合（不過濾）"""
     codes = set()
-    for url in LISTED_CODES_APIS:
+    for url in REV_APIS.values():
         for r in fetch_json(url):
-            c = str(r.get("公司代號") or r.get("SecuritiesCompanyCode") or "").strip()
+            c = str(r.get("公司代號") or "").strip()
             if c:
                 codes.add(c)
+    print(f"  上市+上櫃合法代碼：{len(codes)} 檔{'（API 失敗，略過過濾）' if not codes else ''}")
     return codes
 
 
@@ -335,131 +342,165 @@ def fetch_monthly_revenue_mops(roc_year: int, month: int) -> pd.DataFrame:
 
 def fetch_revenue_moneydj(roc_year: int, month: int,
                           name_to_code: dict = None) -> pd.DataFrame:
-    """從 MoneyDJ 5850web 爬取當月已申報月營收（即時，Big5 頁面）。
-    主列表頁取：公司名稱、YOY%
-    每筆詳細頁取：公布時間、當月營收(千)、累計(千)、累計YOY%、備註、股票代碼
-    回傳欄位：市場, 股票代碼, 公司名稱, 公布時間, 當月營收, 年增率, 累計YOY%, 備註"""
-    BASE = "https://5850web.moneydj.com"
-    LIST_URL = f"{BASE}/z/zf/zf_H_E.djhtm"
+    """從 MoneyDJ 新聞搜尋爬取當月已申報月營收（即時）。
+    第一步：列表頁收集文章連結 + 標題初步解析。
+    第二步：並行抓各文章頁取累計YOY、累計營收、備註、股票代碼。
+    回傳欄位：市場, 股票代碼, 公司名稱, 公布時間, 當月營收(千), 年增率, 累計增減, 備註"""
+    BASE_NEWS = "https://www.moneydj.com"
+    BASE_SEARCH = f"{BASE_NEWS}/kmdj/search/list.aspx"
     HDR = {"User-Agent": HEADERS["User-Agent"]}
+    listed_codes = get_valid_codes()   # 上市+上櫃合法代碼，空集合代表 API 失敗（不過濾）
 
-    def _get_big5(url):
-        r = requests.get(url, headers=HDR, timeout=20, verify=False)
-        return r.content.decode("cp950", errors="replace")
-
-    try:
-        list_html = _get_big5(LIST_URL)
-    except Exception as e:
-        print(f"  MoneyDJ 連線失敗: {e}")
-        return pd.DataFrame()
-
-    soup_list = BeautifulSoup(list_html, "html.parser")
-
-    # ── 從主列表篩出目標年月的營收連結 ───────────────────────────────
-    year_str, month_str = str(roc_year), str(month)
-    PAT_LIST = re.compile(
-        r'(.+?)\s+' + re.escape(year_str) + r'年' + re.escape(month_str) +
-        r'月(?:合併)?營收([\d.,]+)(萬|億|千|百萬)(?:.*?年(增|減)([\d.,]+)%)?'
+    year_str = str(roc_year)
+    month_str = str(month)
+    PAT = re.compile(
+        r'^(.+?)\s+' + re.escape(year_str) + r'年' + re.escape(month_str) +
+        r'月(?:合併)?營收(-?[\d.,]+)(億|萬|千|百萬)(?:[^年]*年(增|減)([\d.,]+)%)?'
     )
 
     def _to_thousand(amt: str, unit: str) -> float:
         v = float(amt.replace(",", ""))
         return {"億": v * 100_000, "萬": v * 10, "千": v, "百萬": v * 1_000}.get(unit, v)
 
-    entries = []   # (co_name, yoy, detail_href)
-    seen = set()
-    for a in soup_list.find_all("a", href=True):
-        txt = a.get_text(strip=True)
-        m = PAT_LIST.search(txt)
-        if not m:
-            continue
-        co_name = m.group(1).strip()
-        if co_name in seen:
-            continue
-        seen.add(co_name)
-        yoy = float(m.group(5)) * (1 if m.group(4) == "增" else -1) if m.group(4) else None
-        entries.append((co_name, yoy, a["href"]))
-
-    if not entries:
-        return pd.DataFrame()
-
-    # ── 逐筆抓詳細頁 ─────────────────────────────────────────────────
-    def _parse_detail(html: str) -> dict:
-        """解析 MoneyDJ 詳細頁，回傳 {公布時間, 當月營收, 累計營收, 累計YOY, 備註, 股票代碼}"""
-        soup = BeautifulSoup(html, "html.parser")
-        result = {"公布時間": "", "當月營收": None, "累計營收": None,
-                  "累計YOY": None, "備註": "", "股票代碼": ""}
-
-        # 公布時間
-        td_p0 = soup.find("td", class_="p0")
-        if td_p0:
-            t = re.search(r'\((\d{3}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2})\)', td_p0.get_text())
-            if t:
-                result["公布時間"] = t.group(1)
-
-        # 數值表（border=1 的內嵌表格）
-        inner = soup.find("table", attrs={"border": "1"})
-        if inner:
-            for tr in inner.find_all("tr"):
-                cells = [td.get_text(strip=True) for td in tr.find_all("td")]
-                if len(cells) < 3:
-                    continue
-                label = cells[0]
-                if "營收" in label and "同期" not in label:
-                    result["當月營收"] = _parse_num(cells[1].replace(",", ""))
-                    result["累計營收"] = _parse_num(cells[2].replace(",", ""))
-                elif "增減百分比" in label:
-                    # 累計 YOY% 在第3欄，格式可能是 "3.14%"
-                    pct_str = cells[2].replace("%", "").replace(",", "").strip()
-                    result["累計YOY"] = _parse_num(pct_str)
-
-        # 備註
-        td_p1 = soup.find("td", class_="p1")
-        if td_p1:
-            note_m = re.search(r'備註[:：]([\s\S]+?)(?:</p>|$)', str(td_p1))
-            if note_m:
-                result["備註"] = BeautifulSoup(note_m.group(1), "html.parser").get_text(strip=True)
-
-        # 股票代碼（from Link2Stk）
-        for a in soup.find_all("a", href=True):
-            cm = re.search(r"Link2Stk\('(\d+)'\)", a.get("href", ""))
-            if cm:
-                result["股票代碼"] = cm.group(1)
-                break
-
-        return result
-
-    rows = []
-    print(f"  MoneyDJ 詳細頁（{len(entries)} 家）:", end="", flush=True)
-    for i, (co_name, yoy, href) in enumerate(entries):
-        try:
-            full_url = href if href.startswith("http") else BASE + ("" if href.startswith("/") else "/z/zf/zfz/") + href
-            detail = _parse_detail(_get_big5(full_url))
-            time.sleep(0.3)
-        except Exception as e:
-            detail = {"公布時間": "", "當月營收": None, "累計營收": None,
-                      "累計YOY": None, "備註": "", "股票代碼": ""}
-
-        code = detail["股票代碼"] or (name_to_code or {}).get(co_name, "")
-        rows.append({
-            "股票代碼": code,
-            "公司名稱": co_name,
-            "公布時間": detail["公布時間"],
-            "當月營收": detail["當月營收"],
-            "累計營收": detail["累計營收"],
-            "年增率":   yoy,
-            "累計增減": detail["累計YOY"],
-            "備註":     detail["備註"],
-        })
-        print(f" {i+1}", end="", flush=True)
-    print(" 完成")
-
-    df = pd.DataFrame(rows)
-    def _mkt(code):
+    def _mkt(code: str) -> str:
         try:
             return "上市" if int(code) < 7000 else "上櫃"
         except Exception:
             return ""
+
+    def _parse_article(html: str) -> dict:
+        """從文章頁解析累計YOY、累計營收、股票代碼、備註。"""
+        soup = BeautifulSoup(html, "html.parser")
+        result = {"code": "", "cumrev": None, "cumyoy": None, "note": "", "emerging": False}
+        # 股票代碼：標題含 (XXXX)
+        cm = re.search(r'\((\d{4,5})\)', html[:2000])
+        if cm:
+            result["code"] = cm.group(1)
+        # 興櫃公司過濾
+        page_text = soup.get_text()
+        if '興櫃' in page_text:
+            result["emerging"] = True
+        # 找含「當月」「本年累計」的表格
+        for table in soup.find_all("table"):
+            tds = [td.get_text(strip=True) for td in table.find_all("td")]
+            if "當月" not in tds or "本年累計" not in tds:
+                continue
+            # 抓「增減百分比」那列的第二個數值 → 累計YOY
+            rows_t = table.find_all("tr")
+            for tr in rows_t:
+                cells = [td.get_text(strip=True) for td in tr.find_all("td")]
+                if len(cells) >= 3 and "增減百分比" in cells[0]:
+                    pct = cells[2].replace("%", "").replace(",", "").strip()
+                    # 判斷正負（前面「增減」那列）
+                    result["cumyoy"] = _parse_num(pct)
+                if len(cells) >= 3 and "營收" in cells[0] and "同期" not in cells[0]:
+                    result["cumrev"] = _parse_num(cells[2].replace(",", ""))
+            break
+        # 備註
+        nm = re.search(r'備註[:：]\s*(.+?)(?:\n|推薦新聞|$)', soup.get_text("\n"))
+        if nm:
+            result["note"] = nm.group(1).strip()[:80]
+        return result
+
+    nm_map = name_to_code or {}
+    entries = []    # [{co_name, rev_k, yoy, ann_time, href}]
+    seen_names: set = set()
+
+    # ── Step 1: 列表頁收集 ──
+    print(f"  MoneyDJ 列表...", end="", flush=True)
+    for pg in range(20):
+        params = {"_Query_": "營收", "_QueryType_": "NW"}
+        if pg > 0:
+            params["index1"] = str(pg)
+        try:
+            resp = requests.get(BASE_SEARCH, params=params, headers=HDR,
+                                timeout=15, verify=False)
+            soup = BeautifulSoup(resp.text, "html.parser")
+        except Exception as e:
+            print(f" 連線失敗({e})")
+            break
+
+        found = 0
+        for tr in soup.find_all("tr"):
+            tds = tr.find_all("td")
+            if len(tds) < 2:
+                continue
+            a = tds[0].find("a", href=True)
+            if not a:
+                continue
+            title = a.get_text(strip=True)
+            date_str = tds[1].get_text(strip=True)
+
+            m = PAT.match(title)
+            if not m:
+                continue
+            co_name = m.group(1).strip().rstrip("*").strip()
+            if co_name in seen_names:
+                continue
+            seen_names.add(co_name)
+            found += 1
+
+            rev_k = _to_thousand(m.group(2), m.group(3))
+            yoy = (float(m.group(5).replace(",", "")) *
+                   (1 if m.group(4) == "增" else -1)) if m.group(4) else None
+            ann_time = ""
+            dm = re.search(r'(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2})', date_str)
+            if dm:
+                ann_time = f"{dm.group(2)}/{dm.group(3)} {dm.group(4)}"
+            href = a["href"]
+            if not href.startswith("http"):
+                href = BASE_NEWS + "/kmdj/" + href.lstrip("./")
+            entries.append({"co_name": co_name, "rev_k": rev_k, "yoy": yoy,
+                            "ann_time": ann_time, "href": href})
+
+        if found == 0 and pg > 0:
+            break
+
+    print(f" {len(entries)} 家，抓文章頁...", end="", flush=True)
+
+    # ── Step 2: 並行抓文章頁 ──
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    def _fetch_article(entry):
+        try:
+            r = requests.get(entry["href"], headers=HDR, timeout=15, verify=False)
+            return entry, _parse_article(r.text)
+        except Exception:
+            return entry, {"code": "", "cumrev": None, "cumyoy": None, "note": ""}
+
+    rows = []
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = [pool.submit(_fetch_article, e) for e in entries]
+        done = 0
+        for fut in as_completed(futures):
+            entry, art = fut.result()
+            if art.get("emerging"):
+                continue
+            co_name = entry["co_name"]
+            code = art["code"] or nm_map.get(co_name, "")
+            if not code:
+                continue
+            if listed_codes and code not in listed_codes:
+                continue
+            if code in REV_SKIP_CODES:
+                continue
+            rows.append({
+                "股票代碼": code,
+                "公司名稱": co_name,
+                "公布時間": entry["ann_time"],
+                "當月營收": entry["rev_k"],
+                "累計營收": art["cumrev"],
+                "年增率":   entry["yoy"],
+                "累計增減": art["cumyoy"],
+                "備註":     art["note"],
+            })
+            done += 1
+            if done % 30 == 0:
+                print(f" {done}", end="", flush=True)
+    print(f" 完成")
+
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
     df["市場"] = df["股票代碼"].apply(_mkt)
     print(f"  MoneyDJ 共 {len(df)} 家（{roc_year}年{month}月）")
     return df
@@ -475,7 +516,10 @@ def load_rev_cache(roc_year: int, month: int) -> list:
             data = json.load(f)
         if str(data.get("ym", "")) != target_ym:
             return []   # 新月份，清除舊 cache
-        return data.get("rows", [])
+        rows = data.get("rows", [])
+        return [r for r in rows
+                if str(r.get("股票代碼", "")).strip()
+                and str(r.get("股票代碼", "")) not in REV_SKIP_CODES]
     except Exception:
         return []
 
@@ -995,6 +1039,52 @@ def _fetch_detail_text(url: str) -> str:
         return ""
 
 
+def _extract_mops_body(text: str) -> str:
+    """從 MOPS get_text() 提取實際公告內容。
+    輸出格式：公告標題（主旨）+ 說明條目（1.-N.），去除頁面樣板。"""
+    lines = text.split('\n')
+    title_line = ""
+    body_lines = []
+    in_body = False
+
+    i = 0
+    while i < len(lines):
+        s = lines[i].strip()
+        # 找「主旨」欄位後面的公告標題
+        if not title_line and s == '主旨':
+            for j in range(i + 1, min(i + 6, len(lines))):
+                ns = lines[j].strip()
+                if ns and not ns.startswith('符合條款') and not ns.startswith('主旨') and not ns.startswith('31'):
+                    title_line = ns
+                    break
+        # 找說明區塊的第一個條目「1.」開頭
+        if not in_body and re.match(r'^1\s*[.．]', s):
+            in_body = True
+        if in_body:
+            if s.startswith('以上資料均由'):
+                break
+            if s:
+                body_lines.append(s)
+        i += 1
+
+    parts = []
+    if title_line:
+        parts.append(title_line)
+    if body_lines:
+        if parts:
+            parts.append('')   # 空行分隔
+        parts.extend(body_lines)
+
+    if parts:
+        return '\n'.join(parts)
+    # fallback
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if s.startswith('公告') or re.match(r'^1\s*[.．]\s*提報', s):
+            return '\n'.join(l.strip() for l in lines[i:] if l.strip()).strip()
+    return text.strip()
+
+
 def _parse_table_financials(html: str) -> dict:
     """
     備用解析器：從公告 HTML 的表格直接抓財務數字。
@@ -1147,6 +1237,7 @@ def fetch_qtr_rss() -> pd.DataFrame:
             "稅前淨利": pretax,
             "業外%":    other_r,
             "稅後淨利": net,
+            "原文":     text,
         })
 
     if not rows:
@@ -1195,6 +1286,7 @@ def normalize_qtr_t14(records: list, market: str) -> pd.DataFrame:
                 "稅前淨利": None,
                 "業外%":    other_r,
                 "稅後淨利": net,
+                "原文":     None,
             })
         except Exception:
             pass
@@ -2455,8 +2547,9 @@ def build_qtr_row(row, prev: dict = None):
     prev_nonop  = p.get("上季業外%")
     prev_adj_eps = p.get("上季EPS")
 
+    _code_attr = str(row.get("股票代碼", "")).strip()
     return (
-        f"<tr{tr_cls}>"
+        f"<tr{tr_cls} data-code='{_code_attr}' style='cursor:pointer'>"
         f"<td style='display:none'>{group}</td>"
         f"<td><span class='badge {badge}'>{mkt}</span></td>"
         f"<td>{row.get('股票代碼','')}</td>"
@@ -3652,6 +3745,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     table.dataTable tbody tr.after-close:hover td {{ background:#241d00 !important; }}
     #qtrTable tbody tr.after-close td {{ background:var(--surface) !important; }}
     #qtrTable tbody tr.after-close:hover td {{ background:var(--hover-row) !important; }}
+    #qtrTable tbody tr[data-code]:hover td {{ background:var(--hover-row); }}
+    #qtrTable tbody tr.detail-open td {{ background:color-mix(in srgb, var(--accent) 8%, var(--surface)) !important; }}
+    .qtr-detail-panel {{ background:var(--surface); border-top:2px solid var(--accent); }}
+    .qtr-detail-panel td {{ padding:.35rem 0 !important; background:var(--surface) !important; }}
+    .qtr-detail-inner {{ padding:.6rem 1rem 1rem; }}
+    .qtr-detail-title {{ font-size:.88rem; font-weight:700; margin-bottom:.5rem; color:var(--text); }}
+    .qtr-detail-table {{ font-size:.8rem; border-collapse:collapse; }}
+    .qtr-detail-table th {{ color:var(--muted); font-weight:400; font-size:.78rem; padding:.25rem .6rem; text-align:right; }}
+    .qtr-detail-table th:first-child {{ text-align:left; min-width:7rem; }}
+    .qtr-detail-table td {{ padding:.2rem .6rem; text-align:right; }}
+    .qtr-detail-table td:first-child {{ text-align:left; color:var(--muted); }}
+    .qtr-detail-table tr:hover td {{ background:var(--hover-row); }}
+    .qtr-detail-curr-hdr {{ font-weight:700 !important; color:var(--text) !important; }}
+    .qtr-detail-panel td:hover {{ background:transparent !important; }}
+    .qtr-orig-text {{ margin-top:0; font-size:.78rem; color:var(--muted);
+        white-space:pre-wrap; background:var(--bg); padding:.5rem .75rem;
+        border-radius:.3rem; max-height:220px; overflow-y:auto;
+        border:1px solid var(--border); line-height:1.5; }}
     #monthlyTable tbody tr.after-close td {{ background:var(--surface) !important; }}
     #monthlyTable tbody tr.after-close:hover td {{ background:var(--hover-row) !important; }}
     .sep-col {{ border-left:3px solid var(--accent) !important; background:#151a30 !important; color:var(--accent); font-weight:600; }}
@@ -4178,6 +4289,95 @@ $(document).ready(function() {{
       $('#qtrMkt').val(''); $('#qtrEps').val(''); $('#qtrGross').val('');
       qtrT.column(1).search('').draw(); qtrT.draw();
     }});
+
+    // ── 季報 detail panel（點擊列展開） ──
+    var _det = window.QTR_DETAIL || {{}};
+    var _colCount = $('#qtrTable thead tr th').length;
+    function _fmtN(v, isEps) {{
+      if (v === null || v === undefined) return '<span style="color:var(--muted)">—</span>';
+      var sign = v >= 0 ? (isEps ? '+' : '') : '';
+      var cls  = v >= 0 ? 'pos' : 'neg';
+      if (isEps) return '<span class="'+cls+'">'+(v>=0?'+':'')+v.toFixed(2)+'</span>';
+      return '<span class="'+cls+'">'+Math.round(v).toLocaleString('en')+'</span>';
+    }}
+    function _fmtP(v) {{
+      if (v === null || v === undefined) return '<span style="color:var(--muted)">—</span>';
+      var cls = v >= 0 ? 'pos' : 'neg';
+      return '<span class="'+cls+'">'+(v>=0?'+':'')+v.toFixed(2)+'%</span>';
+    }}
+    function _buildDetail(code) {{
+      var d = _det[code]; if (!d) return '';
+      var pLbl = d.pq || '上季';
+      var cLbl = (d.cq || '本季') + (d.cum ? '（'+d.cum+'）' : '');
+
+      // 警告橫幅
+      var warn = '<div style="background:rgba(230,92,0,.1);border:1px solid rgba(230,92,0,.5);'
+        +'border-radius:.3rem;padding:.35rem .75rem;font-size:.77rem;color:#fb8c00;margin-bottom:.6rem;">'
+        +'以下數字由 AI 自動從公告原文提取並推算，資料來源包含本站資料庫與公告原文，'
+        +'均可能存在解析錯誤，請務必對照下方原文及公開資訊觀測站查證。</div>';
+
+      // 數字表格：全寬，Q1/Q2 各佔一半
+      var ITEMS = [
+        ['EPS',      d.prev.eps,    d.curr.eps,    'eps'],
+        ['營收(千)', d.prev.rev,    d.curr.rev,    'num'],
+        ['毛利(千)', d.prev.gross,  d.curr.gross,  'num'],
+        ['營益(千)', d.prev.oper,   d.curr.oper,   'num'],
+        ['稅前(千)', d.prev.pretax, d.curr.pretax, 'num'],
+        ['業外(千)', d.prev.other,  d.curr.other,  'num'],
+        ['毛利率',   d.prev.gr,     d.curr.gr,     'pct'],
+        ['營益率',   d.prev.or_,    d.curr.or_,    'pct'],
+        ['業外估稅前%', d.prev.xr,  d.curr.xr,     'pct'],
+      ];
+      var tRows = ITEMS.map(function(r) {{
+        var lbl=r[0], pv=r[1], cv=r[2], t=r[3];
+        var pf = t==='eps' ? _fmtN(pv,true) : t==='pct' ? _fmtP(pv) : _fmtN(pv);
+        var cf = t==='eps' ? _fmtN(cv,true) : t==='pct' ? _fmtP(cv) : _fmtN(cv);
+        return '<tr style="border-top:1px solid rgba(128,128,128,.1)">'
+          +'<td style="color:var(--muted);font-size:.8rem;padding:.3rem .5rem .3rem 0;white-space:nowrap;width:7rem">'+lbl+'</td>'
+          +'<td style="text-align:right;padding:.3rem 1.5rem .3rem .5rem;font-size:.88rem">'+pf+'</td>'
+          +'<td style="text-align:right;padding:.3rem 0 .3rem .5rem;font-size:.88rem">'+cf+'</td>'
+          +'</tr>';
+      }}).join('');
+      var tHead = '<thead><tr>'
+        +'<th style="text-align:left;padding:.25rem .5rem .25rem 0;color:var(--muted);font-weight:400;font-size:.78rem;width:7rem"></th>'
+        +'<th style="text-align:right;padding:.25rem 1.5rem .25rem .5rem;color:var(--muted);font-weight:500;font-size:.8rem">'+pLbl+'</th>'
+        +'<th style="text-align:right;padding:.25rem 0 .25rem .5rem;font-weight:700;font-size:.82rem;color:var(--text)">'+cLbl+'</th>'
+        +'</tr></thead>';
+      var tbl = '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'+tHead+'<tbody>'+tRows+'</tbody></table>';
+
+      // 公告原文：第一行當標題，其餘為內文
+      var textSec = '';
+      if (d.text) {{
+        var lines = d.text.trim().split('\\n');
+        var title = '';
+        var body  = d.text;
+        // 找第一個非空行當標題
+        for (var i=0; i<lines.length; i++) {{
+          if (lines[i].trim()) {{ title = lines[i].trim(); body = lines.slice(i+1).join('\\n').trim(); break; }}
+        }}
+        textSec = '<div style="margin-top:.85rem;border-top:1px solid var(--border);padding-top:.65rem">'
+          +(title ? '<div style="font-size:.85rem;font-weight:600;color:var(--text);margin-bottom:.4rem">'+title+'</div>' : '')
+          +'<div class="qtr-orig-text">'+body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>'
+          +'</div>';
+      }}
+
+      return '<tr class="qtr-detail-panel"><td colspan="'+_colCount+'" style="padding:0">'
+        +'<div class="qtr-detail-inner">'+warn+tbl+textSec+'</div>'
+        +'</td></tr>';
+    }}
+    $('#qtrTable tbody').on('click', 'tr[data-code]', function() {{
+      var $tr   = $(this);
+      var $next = $tr.next('.qtr-detail-panel');
+      if ($next.length) {{
+        $next.remove(); $tr.removeClass('detail-open'); return;
+      }}
+      $('.qtr-detail-panel').remove();
+      $('tr[data-code]').removeClass('detail-open');
+      var code = $tr.data('code');
+      var html = _buildDetail(String(code));
+      if (!html) return;
+      $tr.after(html); $tr.addClass('detail-open');
+    }});
   }}
 
   // ── 庫藏股表 ──
@@ -4521,7 +4721,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                   monthly_prev_data: dict = None,
                   etf_html: str = "",
                   df_spo: pd.DataFrame = None,
-                  rev_hist_cache: dict = None) -> str:
+                  rev_hist_cache: dict = None,
+                  prev_full_lookup: dict = None) -> str:
     updated = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
     rev_period      = f"民國 {roc_year} 年 {month} 月"
     rev_period_disp = f"{roc_year + 1911}/{month:02d}"   # e.g. "2026/05"
@@ -4609,11 +4810,104 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             if after_close_n > 0 else ""
         )
         prev_data = prev_data or {}
+        _pfl = prev_full_lookup or {}
+
+        def _dv(d, k):
+            """安全取值，相容 dict / pd.Series，None / NaN 回傳 None"""
+            if d is None:
+                return None
+            try:
+                v = d.get(k)
+            except Exception:
+                return None
+            return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
+
+        # 建 qtr_detail：每支股票的本季+上季完整數字，供 JS detail panel 用
+        qtr_detail: dict = {}
+        for _, _r in df_qtr.iterrows():
+            _code = str(_r.get("股票代碼", "")).strip()
+            _pv   = prev_data.get(_code) or {}
+            _pr   = _pfl.get(_code) or {}
+            _qstr  = str(_r.get("季度", ""))
+            _is_q1 = _qstr.upper().endswith("Q1")
+            _raw_eps  = _dv(_r, "EPS")
+            _prev_eps = _pv.get("上季EPS")
+            if _raw_eps is not None and _prev_eps is not None and not _is_q1:
+                _adj_eps = round(float(_raw_eps) - float(_prev_eps), 2)
+            else:
+                _adj_eps = _raw_eps
+
+            # 累計值 → 單季：Q2+ 報告儲存的是累計值，有上季絕對值才能扣掉
+            _r_rev    = _dv(_r, "營業收入")
+            _r_gross  = _dv(_r, "毛利")
+            _r_oper   = _dv(_r, "營業利益")
+            _r_pretax = _dv(_r, "稅前淨利")
+            _pr_rev    = _dv(_pr, "營業收入")
+            _pr_gross  = _dv(_pr, "毛利")
+            _pr_oper   = _dv(_pr, "營業利益")
+            _pr_pretax = _dv(_pr, "稅前淨利")
+
+            def _sq(c, p):
+                return round(float(c) - float(p), 0) if (c is not None and p is not None) else c
+
+            if not _is_q1 and _pr:
+                _curr_rev    = _sq(_r_rev,    _pr_rev)
+                _curr_gross  = _sq(_r_gross,  _pr_gross)
+                _curr_oper   = _sq(_r_oper,   _pr_oper)
+                _curr_pretax = _sq(_r_pretax, _pr_pretax)
+                _cum_label   = ""  # 已扣上季，是單季值
+            else:
+                _curr_rev    = _r_rev
+                _curr_gross  = _r_gross
+                _curr_oper   = _r_oper
+                _curr_pretax = _r_pretax
+                _cum_label   = "" if _is_q1 else "累計"
+
+            _curr_other  = (round(float(_curr_pretax) - float(_curr_oper), 0)
+                            if _curr_pretax is not None and _curr_oper is not None else None)
+            _prev_oper   = _pr_oper
+            _prev_pretax = _pr_pretax
+            _prev_other  = (round(float(_prev_pretax) - float(_prev_oper), 0)
+                            if _prev_pretax is not None and _prev_oper is not None else None)
+            _prev_eps_pr = _dv(_pr, "EPS")
+            _pq_str = str(_pr.get("季度", "")) if _pr else ""
+            qtr_detail[_code] = {
+                "name": str(_r.get("公司名稱", "")),
+                "cq":   _qstr,
+                "pq":   _pv.get("上季季度") or _pq_str,
+                "cum":  _cum_label,
+                "curr": {
+                    "eps":    _adj_eps,
+                    "rev":    _curr_rev,
+                    "gross":  _curr_gross,
+                    "oper":   _curr_oper,
+                    "pretax": _curr_pretax,
+                    "other":  _curr_other,
+                    "gr":     _dv(_r, "毛利率"),
+                    "or_":    _dv(_r, "營益率"),
+                    "xr":     _dv(_r, "業外%"),
+                },
+                "prev": {
+                    "eps":    _pv.get("上季EPS") if _pv.get("上季EPS") is not None else _prev_eps_pr,
+                    "rev":    _pr_rev,
+                    "gross":  _pr_gross,
+                    "oper":   _prev_oper,
+                    "pretax": _prev_pretax,
+                    "other":  _prev_other,
+                    "gr":     _pv.get("上季毛利率") if _pv.get("上季毛利率") is not None else _dv(_pr, "毛利率"),
+                    "or_":    _pv.get("上季營益率") if _pv.get("上季營益率") is not None else _dv(_pr, "營益率"),
+                    "xr":     _pv.get("上季業外%")  if _pv.get("上季業外%")  is not None else _dv(_pr, "業外%"),
+                },
+                "text": (_dv(_r, "原文") or "").strip(),
+            }
+        qtr_detail_json = json.dumps(qtr_detail, ensure_ascii=False)
+
         qtr_rows = "\n".join(
             build_qtr_row(r, prev_data.get(str(r.get("股票代碼", ""))))
             for _, r in df_qtr.iterrows()
         )
-        qtr_content = f"""<div class="table-responsive">
+        qtr_content = f"""<script>window.QTR_DETAIL={qtr_detail_json};</script>
+        <div class="table-responsive">
           <table id="qtrTable" class="table table-hover mb-0 w-100">
             <thead>
               <tr>
@@ -5568,6 +5862,7 @@ def fetch_t05st02() -> tuple:
                 "營業收入": rev, "毛利": gross, "毛利率": gross_r,
                 "營業利益": oper, "營益率": oper_r,
                 "稅前淨利": pretax, "業外%": other_r, "稅後淨利": net,
+                "原文":     _extract_mops_body(text) if text else None,
             })
         print(f" 完成，{len(qtr_result)} 家")
 
@@ -5830,17 +6125,6 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         df_rev = pd.DataFrame(columns=["市場","股票代碼","公司名稱","公布時間",
                                         "當月營收","年增率","累計增減","備註"])
     else:
-        # 過濾興櫃：優先用 t51sb01 全量上市/上櫃名單；補入 cache 既有代碼避免誤刪金融股
-        valid_codes = get_valid_codes()   # t51sb01（上市+上櫃全量）
-        if cached_rev:
-            valid_codes |= {str(r.get("股票代碼", "")).strip()
-                            for r in cached_rev if r.get("股票代碼")}
-        if valid_codes and "股票代碼" in df_rev.columns:
-            before = len(df_rev)
-            df_rev = df_rev[df_rev["股票代碼"].astype(str).str.strip().isin(valid_codes)].reset_index(drop=True)
-            filtered = before - len(df_rev)
-            if filtered:
-                print(f"  過濾非上市/上櫃（興櫃等）{filtered} 家")
         print(f"  共 {len(df_rev)} 家已申報")
 
         print()
@@ -5933,6 +6217,7 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                             ["股票代碼", "季度", "_排序鍵"])
     # 過濾：季度欄空白 → 無法確認是哪一季，一律排除
     # 財務欄全空時仍保留（合併財報格式可能解析失敗，但公告本身是有效季報）
+    prev_full_lookup: dict = {}
     if df_qtr is not None and not df_qtr.empty:
         has_season = df_qtr.get("季度", pd.Series(dtype=str)).fillna("").str.strip() != ""
         not_skipped = ~df_qtr["股票代碼"].astype(str).str.strip().isin(QTR_SKIP_CODES)
@@ -5949,6 +6234,23 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                 except Exception:
                     return 0
             df_qtr["_qnum"] = df_qtr["季度"].map(_qnum_s)
+
+            # 去重前先建上季完整資料 lookup（給 detail panel 用）
+            prev_full_lookup: dict = {}
+            _cqdata: dict = {}
+            for _, _r in df_qtr.iterrows():
+                _c = str(_r.get("股票代碼", "")).strip()
+                _q = str(_r.get("季度", "")).strip()
+                if _c and _q:
+                    if _c not in _cqdata:
+                        _cqdata[_c] = {}
+                    if _q not in _cqdata[_c]:
+                        _cqdata[_c][_q] = dict(_r)
+            for _c, _qd in _cqdata.items():
+                if len(_qd) >= 2:
+                    _sq = sorted(_qd.keys(), key=_qnum_s, reverse=True)
+                    prev_full_lookup[_c] = _qd[_sq[1]]
+
             df_qtr = (df_qtr
                       .sort_values(["_qnum", "_排序鍵"], ascending=[False, False])
                       .drop_duplicates(subset=["股票代碼"], keep="first")
@@ -6116,7 +6418,8 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          monthly_prev_data=monthly_prev_data,
                          etf_html=_etf_html,
                          df_spo=df_spo,
-                         rev_hist_cache=_rev_hist)
+                         rev_hist_cache=_rev_hist,
+                         prev_full_lookup=prev_full_lookup)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
 
