@@ -94,6 +94,8 @@ EVENT_CACHE_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "e
 HIST_PRICE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hist_price_cache.json")
 NEWS_TS_FILE       = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_fetch_ts.json")
 REV_CACHE_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rev_cache.json")
+REV_ARCHIVE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rev_archive.json")
+REV_ARCHIVE_MONTHS  = 2   # 保留最近 N 個月封存
 PREV_DATA_CACHE_FILE         = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prev_data_cache.json")
 MONTHLY_PREV_CACHE_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monthly_prev_cache.json")
 MONTHLY_CACHE_DAYS = 30   # 保留最近幾天的歷史
@@ -103,7 +105,7 @@ SPO_CACHE_DAYS     = 90   # 現增：公告到新股掛牌可能跨月，保留 
 REV_HIST_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rev_hist_cache.json")
 REV_HIST_MONTHS    = 60   # 保留最近幾個月的歷史月營收
 # 不適用季報頁面的股票代碼（不公布 EPS 或格式不符，如投資控股、特殊目的公司）
-QTR_SKIP_CODES = {"7631", "1593"}
+QTR_SKIP_CODES = {"7631"}
 GROQ_API_KEY       = "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"  # Groq 免費 API
 
 HEADERS = {
@@ -506,8 +508,25 @@ def fetch_revenue_moneydj(roc_year: int, month: int,
     return df
 
 
+def load_rev_archive() -> dict:
+    """載入月營收封存：{ym → [rows]}，最多 REV_ARCHIVE_MONTHS 個月。"""
+    try:
+        with open(REV_ARCHIVE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_rev_archive(archive: dict) -> None:
+    try:
+        with open(REV_ARCHIVE_FILE, "w", encoding="utf-8") as f:
+            json.dump(archive, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"  ⚠️ 營收封存寫入失敗：{e}")
+
+
 def load_rev_cache(roc_year: int, month: int) -> list:
-    """載入當月營收 cache；若月份不符（新月份）自動清除並回傳空列表。"""
+    """載入當月營收 cache；若月份不符（新月份）自動歸檔舊資料並回傳空列表。"""
     target_ym = f"{roc_year}{month:02d}"
     if not os.path.exists(REV_CACHE_FILE):
         return []
@@ -515,7 +534,18 @@ def load_rev_cache(roc_year: int, month: int) -> list:
         with open(REV_CACHE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         if str(data.get("ym", "")) != target_ym:
-            return []   # 新月份，清除舊 cache
+            # 新月份：把舊月份資料歸檔
+            old_ym   = str(data.get("ym", ""))
+            old_rows = data.get("rows", [])
+            if old_ym and old_rows:
+                archive = load_rev_archive()
+                if old_ym not in archive:
+                    archive[old_ym] = old_rows
+                    sorted_yms = sorted(archive.keys(), reverse=True)
+                    archive = {k: archive[k] for k in sorted_yms[:REV_ARCHIVE_MONTHS]}
+                    save_rev_archive(archive)
+                    print(f"  → 已歸檔 {old_ym} 月營收 {len(old_rows)} 家")
+            return []
         rows = data.get("rows", [])
         return [r for r in rows
                 if str(r.get("股票代碼", "")).strip()
@@ -3825,7 +3855,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <div class="card">
-      <div class="card-header px-3 py-2">營收明細（{rev_period}）</div>
+      <div class="card-header px-3 py-2 d-flex align-items-center gap-2">
+        <span>營收明細（{rev_period}）</span>
+        {rev_month_dropdown}
+      </div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table id="revTable" class="table table-hover mb-0 w-100">
@@ -4026,6 +4059,25 @@ function switchTab(id, btn) {{
 $(document).ready(function() {{
 
   // ── 營收表（11欄：隱藏群組/市場/代號/名稱/AI評分/公布時間/營收/MOM%/YOY%/累計YOY%/備註）──
+  function _revDrawCb() {{
+    var api = this.api();
+    $(api.table().node()).find('tr.rev-group-sep').remove();
+    var rows = api.rows({{order:'applied',search:'applied'}}).nodes();
+    var grps = api.column(0,{{order:'applied',search:'applied'}}).data();
+    var last = null;
+    grps.each(function(g,i) {{
+      if(last !== g) {{
+        var cnt = grps.filter(function(v){{return v===g;}}).length;
+        var label = g==='0'
+          ? '市場未反映（今日公布）<span style="font-weight:400;margin-left:.5rem;">'+cnt+' 筆</span>'
+          : '已反映（昨日以前公布）<span style="font-weight:400;margin-left:.5rem;">'+cnt+' 筆</span>';
+        var bg  = g==='0' ? '#fff3d6' : '#f0f8ff';
+        var bdr = g==='0' ? '#e65c00' : '#1f6feb';
+        $(rows[i]).before('<tr class="rev-group-sep"><td colspan="11" style="background:'+bg+';border-top:2px solid '+bdr+';font-weight:600;font-size:.82rem;padding:.4rem 1rem;">● '+label+'</td></tr>');
+        last = g;
+      }}
+    }});
+  }}
   var revT = $('#revTable').DataTable({{
     paging: false,
     order: [[0,'asc'],[5,'desc']],   // 先依群組（今日/昨日），再依公布時間最新
@@ -4036,26 +4088,9 @@ $(document).ready(function() {{
       {{ targets:[4,6,7,8,9], type:'num' }},  // AI評分(4)也數值排序
       {{ targets:[10], orderable: false }}
     ],
-    drawCallback: function() {{
-      var api = this.api();
-      $(api.table().node()).find('tr.rev-group-sep').remove();
-      var rows = api.rows({{order:'applied',search:'applied'}}).nodes();
-      var grps = api.column(0,{{order:'applied',search:'applied'}}).data();
-      var last = null;
-      grps.each(function(g,i) {{
-        if(last !== g) {{
-          var cnt = grps.filter(function(v){{return v===g;}}).length;
-          var label = g==='0'
-            ? '市場未反映（今日公布）<span style="font-weight:400;margin-left:.5rem;">'+cnt+' 筆</span>'
-            : '已反映（昨日以前公布）<span style="font-weight:400;margin-left:.5rem;">'+cnt+' 筆</span>';
-          var bg  = g==='0' ? '#fff3d6' : '#f0f8ff';
-          var bdr = g==='0' ? '#e65c00' : '#1f6feb';
-          $(rows[i]).before('<tr class="rev-group-sep"><td colspan="11" style="background:'+bg+';border-top:2px solid '+bdr+';font-weight:600;font-size:.82rem;padding:.4rem 1rem;">● '+label+'</td></tr>');
-          last = g;
-        }}
-      }});
-    }}
+    drawCallback: _revDrawCb
   }});
+  var _revBaseRows = $('#revTable tbody').html();
   $('#revMkt').on('change', function() {{ revT.column(1).search(this.value).draw(); }});
   $.fn.dataTable.ext.search.push(function(s,d,i,row,c) {{
     if(!$.fn.DataTable.isDataTable('#revTable')) return true;
@@ -4105,6 +4140,31 @@ $(document).ready(function() {{
   $('#revReset').on('click', function(){{
     $('#revMkt').val(''); $('#revYoy').val(''); $('#revMom').val(''); $('#revNewHigh').prop('checked',false);
     revT.column(1).search('').draw(); revT.draw();
+  }});
+
+  // ── 封存月營收切換 ──
+  var _revArchive = {rev_archive_json};
+  $(document).on('click', '.rev-month-item', function(e) {{
+    e.preventDefault();
+    var ym = $(this).data('ym') || '';
+    $('.rev-month-item').removeClass('active');
+    $(this).addClass('active');
+    $('#revMonthLabel').text($(this).text());
+    var html = ym ? (_revArchive[ym] || '') : _revBaseRows;
+    if ($.fn.DataTable.isDataTable('#revTable')) revT.destroy();
+    $('#revTable tbody').html(html);
+    revT = $('#revTable').DataTable({{
+      paging: false,
+      order: [[0,'asc'],[5,'desc']],
+      orderFixed: {{ pre: [[0,'asc']] }},
+      language: {{ search:'搜尋：', info:'共 _TOTAL_ 筆', zeroRecords:'無資料' }},
+      columnDefs: [
+        {{ targets:0, visible:false, searchable:false }},
+        {{ targets:[4,6,7,8,9], type:'num' }},
+        {{ targets:[10], orderable: false }}
+      ],
+      drawCallback: _revDrawCb
+    }});
   }});
 
   // ── 歷史月營收 ──
@@ -4295,74 +4355,79 @@ $(document).ready(function() {{
     var _colCount = $('#qtrTable thead tr th').length;
     function _fmtN(v, isEps) {{
       if (v === null || v === undefined) return '<span style="color:var(--muted)">—</span>';
-      var sign = v >= 0 ? (isEps ? '+' : '') : '';
-      var cls  = v >= 0 ? 'pos' : 'neg';
-      if (isEps) return '<span class="'+cls+'">'+(v>=0?'+':'')+v.toFixed(2)+'</span>';
-      return '<span class="'+cls+'">'+Math.round(v).toLocaleString('en')+'</span>';
+      var clr = v >= 0 ? '#fb8c00' : 'var(--text)';
+      if (isEps) return '<span style="color:'+clr+';font-weight:600">'+(v>=0?'+':'')+v.toFixed(2)+'</span>';
+      return '<span style="color:'+clr+'">'+Math.round(v).toLocaleString('en')+'</span>';
     }}
     function _fmtP(v) {{
       if (v === null || v === undefined) return '<span style="color:var(--muted)">—</span>';
-      var cls = v >= 0 ? 'pos' : 'neg';
-      return '<span class="'+cls+'">'+(v>=0?'+':'')+v.toFixed(2)+'%</span>';
+      var clr = v >= 0 ? '#fb8c00' : 'var(--text)';
+      return '<span style="color:'+clr+'">'+(v>=0?'+':'')+v.toFixed(2)+'%</span>';
     }}
     function _buildDetail(code) {{
       var d = _det[code]; if (!d) return '';
       var pLbl = d.pq || '上季';
-      var cLbl = (d.cq || '本季') + (d.cum ? '（'+d.cum+'）' : '');
+      var cLbl = d.cq || '本季';
 
-      // 警告橫幅
+      // 從原文取公告標題（第一個非空行）
+      var annoTitle = '';
+      var bodyText  = '';
+      if (d.text) {{
+        var lines = d.text.trim().split('\\n');
+        for (var i=0; i<lines.length; i++) {{
+          if (lines[i].trim()) {{ annoTitle = lines[i].trim(); bodyText = lines.slice(i+1).join('\\n').trim(); break; }}
+        }}
+      }}
+
+      // 免責聲明橫幅
       var warn = '<div style="background:rgba(230,92,0,.1);border:1px solid rgba(230,92,0,.5);'
         +'border-radius:.3rem;padding:.35rem .75rem;font-size:.77rem;color:#fb8c00;margin-bottom:.6rem;">'
         +'以下數字由 AI 自動從公告原文提取並推算，資料來源包含本站資料庫與公告原文，'
         +'均可能存在解析錯誤，請務必對照下方原文及公開資訊觀測站查證。</div>';
 
-      // 數字表格：全寬，Q1/Q2 各佔一半
+      // 數字表格（左：本季 cLbl，右：上季 pLbl）
       var ITEMS = [
-        ['EPS',      d.prev.eps,    d.curr.eps,    'eps'],
-        ['營收(千)', d.prev.rev,    d.curr.rev,    'num'],
-        ['毛利(千)', d.prev.gross,  d.curr.gross,  'num'],
-        ['營益(千)', d.prev.oper,   d.curr.oper,   'num'],
-        ['稅前(千)', d.prev.pretax, d.curr.pretax, 'num'],
-        ['業外(千)', d.prev.other,  d.curr.other,  'num'],
-        ['毛利率',   d.prev.gr,     d.curr.gr,     'pct'],
-        ['營益率',   d.prev.or_,    d.curr.or_,    'pct'],
-        ['業外估稅前%', d.prev.xr,  d.curr.xr,     'pct'],
+        ['EPS',         d.curr.eps,    d.prev.eps,    'eps'],
+        ['營收(千)',    d.curr.rev,    d.prev.rev,    'num'],
+        ['毛利(千)',    d.curr.gross,  d.prev.gross,  'num'],
+        ['營益(千)',    d.curr.oper,   d.prev.oper,   'num'],
+        ['稅前(千)',    d.curr.pretax, d.prev.pretax, 'num'],
+        ['業外(千)',    d.curr.other,  d.prev.other,  'num'],
+        ['毛利率',      d.curr.gr,     d.prev.gr,     'pct'],
+        ['營益率',      d.curr.or_,    d.prev.or_,    'pct'],
+        ['業外估稅前%', d.curr.xr,    d.prev.xr,     'pct'],
       ];
       var tRows = ITEMS.map(function(r) {{
-        var lbl=r[0], pv=r[1], cv=r[2], t=r[3];
-        var pf = t==='eps' ? _fmtN(pv,true) : t==='pct' ? _fmtP(pv) : _fmtN(pv);
+        var lbl=r[0], cv=r[1], pv=r[2], t=r[3];
         var cf = t==='eps' ? _fmtN(cv,true) : t==='pct' ? _fmtP(cv) : _fmtN(cv);
+        var pf = t==='eps' ? _fmtN(pv,true) : t==='pct' ? _fmtP(pv) : _fmtN(pv);
         return '<tr style="border-top:1px solid rgba(128,128,128,.1)">'
           +'<td style="color:var(--muted);font-size:.8rem;padding:.3rem .5rem .3rem 0;white-space:nowrap;width:7rem">'+lbl+'</td>'
-          +'<td style="text-align:right;padding:.3rem 1.5rem .3rem .5rem;font-size:.88rem">'+pf+'</td>'
-          +'<td style="text-align:right;padding:.3rem 0 .3rem .5rem;font-size:.88rem">'+cf+'</td>'
+          +'<td style="text-align:right;padding:.3rem 1.5rem .3rem .5rem;font-size:.88rem">'+cf+'</td>'
+          +'<td style="text-align:right;padding:.3rem 0 .3rem .5rem;font-size:.88rem">'+pf+'</td>'
           +'</tr>';
       }}).join('');
       var tHead = '<thead><tr>'
         +'<th style="text-align:left;padding:.25rem .5rem .25rem 0;color:var(--muted);font-weight:400;font-size:.78rem;width:7rem"></th>'
-        +'<th style="text-align:right;padding:.25rem 1.5rem .25rem .5rem;color:var(--muted);font-weight:500;font-size:.8rem">'+pLbl+'</th>'
-        +'<th style="text-align:right;padding:.25rem 0 .25rem .5rem;font-weight:700;font-size:.82rem;color:var(--text)">'+cLbl+'</th>'
+        +'<th style="text-align:right;padding:.25rem 1.5rem .25rem .5rem;font-weight:700;font-size:.82rem;color:var(--text)">'+cLbl+'</th>'
+        +'<th style="text-align:right;padding:.25rem 0 .25rem .5rem;color:var(--muted);font-weight:500;font-size:.8rem">'+pLbl+'</th>'
         +'</tr></thead>';
       var tbl = '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'+tHead+'<tbody>'+tRows+'</tbody></table>';
 
-      // 公告原文：第一行當標題，其餘為內文
-      var textSec = '';
-      if (d.text) {{
-        var lines = d.text.trim().split('\\n');
-        var title = '';
-        var body  = d.text;
-        // 找第一個非空行當標題
-        for (var i=0; i<lines.length; i++) {{
-          if (lines[i].trim()) {{ title = lines[i].trim(); body = lines.slice(i+1).join('\\n').trim(); break; }}
-        }}
-        textSec = '<div style="margin-top:.85rem;border-top:1px solid var(--border);padding-top:.65rem">'
-          +(title ? '<div style="font-size:.85rem;font-weight:600;color:var(--text);margin-bottom:.4rem">'+title+'</div>' : '')
-          +'<div class="qtr-orig-text">'+body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>'
-          +'</div>';
-      }}
+      // 原文內文（標題以下）
+      var bodySec = bodyText
+        ? '<div style="margin-top:.55rem;font-size:.8rem;color:var(--muted);line-height:1.6;white-space:pre-wrap">'+bodyText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>'
+        : '';
+
+      // 左：公告標題 + 公告內文　右：免責聲明 + 數字表（各佔 50%）
+      var leftCol = '<div style="flex:0 0 50%;padding-right:1.5rem;border-right:1px solid var(--border);min-width:0;">'
+        +(annoTitle ? '<div style="font-size:.88rem;font-weight:600;color:var(--text);line-height:1.5;margin-bottom:.4rem">'+annoTitle+'</div>' : '')
+        +bodySec
+        +'</div>';
+      var rightCol = '<div style="flex:0 0 50%;padding-left:1.5rem;min-width:0">'+warn+tbl+'</div>';
 
       return '<tr class="qtr-detail-panel"><td colspan="'+_colCount+'" style="padding:0">'
-        +'<div class="qtr-detail-inner">'+warn+tbl+textSec+'</div>'
+        +'<div class="qtr-detail-inner"><div style="display:flex;align-items:flex-start">'+leftCol+rightCol+'</div></div>'
         +'</td></tr>';
     }}
     $('#qtrTable tbody').on('click', 'tr[data-code]', function() {{
@@ -4722,7 +4787,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                   etf_html: str = "",
                   df_spo: pd.DataFrame = None,
                   rev_hist_cache: dict = None,
-                  prev_full_lookup: dict = None) -> str:
+                  prev_full_lookup: dict = None,
+                  rev_archive: dict = None) -> str:
     updated = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
     rev_period      = f"民國 {roc_year} 年 {month} 月"
     rev_period_disp = f"{roc_year + 1911}/{month:02d}"   # e.g. "2026/05"
@@ -5147,6 +5213,46 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             "</table></div>"
         )
 
+    # ── 封存月下拉 ──
+    def _ym_disp(ym_str: str) -> str:
+        try:
+            y, m_part = int(ym_str[:3]), int(ym_str[3:])
+            return f"民國 {y}年 {m_part}月"
+        except Exception:
+            return ym_str
+
+    current_ym = f"{roc_year}{month:02d}"
+    arch = rev_archive or {}
+
+    # 預先把封存月的 rows HTML 打包
+    rev_archive_rows: dict = {}
+    for _ym, _arch_rows in arch.items():
+        rev_archive_rows[_ym] = "\n".join(
+            build_rev_row(r, "1")
+            for r in _arch_rows
+            if str(r.get("股票代碼", "")).strip()
+        )
+    rev_archive_json = json.dumps(rev_archive_rows, ensure_ascii=False)
+
+    _dd_items = (
+        '<li><a class="dropdown-item rev-month-item active" data-ym="" href="#">'
+        f'本期（{_ym_disp(current_ym)}）</a></li>'
+    )
+    for _ym in sorted(arch.keys(), reverse=True):
+        _dd_items += (
+            f'<li><a class="dropdown-item rev-month-item" data-ym="{_ym}" href="#">'
+            f'{_ym_disp(_ym)}</a></li>'
+        )
+    rev_month_dropdown = (
+        '<div class="dropdown d-inline-block">'
+        '<button class="btn btn-sm btn-outline-secondary dropdown-toggle" '
+        'type="button" data-bs-toggle="dropdown">'
+        f'<span id="revMonthLabel">本期（{_ym_disp(current_ym)}）</span>'
+        '</button>'
+        f'<ul class="dropdown-menu">{_dd_items}</ul>'
+        '</div>'
+    )
+
     return HTML_TEMPLATE.format(
         updated=updated, rev_period=rev_period,
         rev_period_disp=rev_period_disp, rev_total=rev_total, rev_latest=rev_latest,
@@ -5172,6 +5278,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         spo_count=spo_count,
         spo_content=spo_content,
         rev_hist_json=rev_hist_json,
+        rev_archive_json=rev_archive_json,
+        rev_month_dropdown=rev_month_dropdown,
     )
 
 
@@ -5466,7 +5574,7 @@ def fetch_t05st02() -> tuple:
             seasonal02 = [r for r in rows02
                           if r.get("typek", "").strip() not in ("emg", "rotc")
                           and any(k in r["desc"] for k in QTR_KW)
-                          and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"])
+                          and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"] or any(f"Q{n}" in r["desc"] for n in "1234"))
                           and not any(x in r["desc"] for x in QTR_EXCLUDE)]
             treasury02 = [r for r in rows02
                           if r.get("typek", "").strip() not in ("emg", "rotc")
@@ -5623,7 +5731,7 @@ def fetch_t05st02() -> tuple:
                                  and (
                                      (r.get("typek","").strip() not in ("emg","rotc")
                                       and any(k in r["desc"] for k in QTR_KW)
-                                      and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"])
+                                      and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"] or any(f"Q{n}" in r["desc"] for n in "1234"))
                                       and not any(x in r["desc"] for x in QTR_EXCLUDE))
                                      or
                                      (r.get("typek","").strip() not in ("emg","rotc")
@@ -5713,7 +5821,7 @@ def fetch_t05st02() -> tuple:
                     seasonal01 = [r for r in rows01
                                   if r.get("typek", "").strip() not in ("emg", "rotc")
                                   and any(k in r["desc"] for k in QTR_KW)
-                                  and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"])
+                                  and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"] or any(f"Q{n}" in r["desc"] for n in "1234"))
                                   and not any(x in r["desc"] for x in QTR_EXCLUDE)]
                     treasury01 = [r for r in rows01
                                   if r.get("typek", "").strip() not in ("emg", "rotc")
@@ -5754,7 +5862,7 @@ def fetch_t05st02() -> tuple:
     seasonal_rows = [r for r in all_rows
                      if r.get("typek", "").strip() not in ("emg", "rotc")
                      and any(k in r["desc"] for k in QTR_KW)
-                     and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"])
+                     and ("季" in r["desc"] or "上半年" in r["desc"] or "第二" in r["desc"] or any(f"Q{n}" in r["desc"] for n in "1234"))
                      and not any(x in r["desc"] for x in QTR_EXCLUDE)]
     treasury_rows = [r for r in all_rows
                      if r.get("typek", "").strip() not in ("emg", "rotc")
@@ -6425,6 +6533,7 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
     _rev_hist = ensure_rev_hist(_code_market)
 
     _news_date_str = (news_fetch_time or datetime.now()).strftime("%Y/%m/%d %H:%M 更新")
+    _rev_archive = load_rev_archive()
     html = generate_html(df_rev, df_qtr, roc_year, month, prev_data, df_trs, df_monthly,
                          news_analysis=news_analysis, news_items=news_items,
                          events=events, news_date=_news_date_str,
@@ -6432,7 +6541,8 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          etf_html=_etf_html,
                          df_spo=df_spo,
                          rev_hist_cache=_rev_hist,
-                         prev_full_lookup=prev_full_lookup)
+                         prev_full_lookup=prev_full_lookup,
+                         rev_archive=_rev_archive)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
 
