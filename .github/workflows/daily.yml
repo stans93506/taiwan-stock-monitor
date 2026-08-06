@@ -1,10 +1,8 @@
 name: 每日更新台股監測
 
 on:
-  schedule:
-    - cron: '30 */2 * * *'  # 每兩小時執行一次（UTC :30分），全天共12次
   workflow_dispatch:
-    # 也可以在 GitHub 網頁手動觸發
+    # 由 cron-job.org 外部觸發，精準控制執行時間
 
 jobs:
   update:
