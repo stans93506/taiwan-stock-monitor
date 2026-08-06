@@ -1911,7 +1911,7 @@ def fetch_prev_quarter_data() -> dict:
     UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
           "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
     BASE_URL = "https://mopsov.twse.com.tw"
-    QTR_KW      = ["季", "財務報告", "財務報表", "合併財務", "合併財報"]
+    QTR_KW      = ["季", "財務報告", "財務報表", "合併財務", "合併財報", "財報"]
     QTR_EXCLUDE = ["更正", "補正", "iXBRL", "XBRL", "重編", "申報資訊",
                    "核閱報告", "未於規定期限", "除息", "不分派", "股利",
                    "負債比率", "流動比率", "速動比率",
@@ -5347,7 +5347,7 @@ def fetch_t05st02() -> tuple:
     UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
           "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
     BASE_URL = "https://mopsov.twse.com.tw"
-    QTR_KW      = ["財務報告", "財務報表", "合併財務", "合併財報"]
+    QTR_KW      = ["財務報告", "財務報表", "合併財務", "合併財報", "財報"]
     QTR_EXCLUDE = ["更正", "補正", "iXBRL", "XBRL", "重編", "申報資訊",
                    "核閱報告", "未於規定期限", "除息", "不分派", "股利",
                    "負債比率", "流動比率", "速動比率",
@@ -5629,6 +5629,19 @@ def fetch_t05st02() -> tuple:
                                      (r.get("typek","").strip() not in ("emg","rotc")
                                       and any(k in r["desc"] for k in MONTHLY_KW)
                                       and not any(x in r["desc"] for x in MONTHLY_EXCLUDE))
+                                     or
+                                     (r.get("typek","").strip() not in ("emg","rotc")
+                                      and any(k in r["desc"] for k in TRS_KW)
+                                      and any(k in r["desc"] for k in TRS_REQUIRE)
+                                      and not any(x in r["desc"] for x in TRS_EXCLUDE))
+                                     or
+                                     (r.get("typek","").strip() in ("sii", "otc")
+                                      and any(k in r["desc"] for k in EVENT_KW)
+                                      and not any(x in r["desc"] for x in EVENT_EXCLUDE))
+                                     or
+                                     (r.get("typek","").strip() not in ("emg","rotc")
+                                      and any(k in r["desc"] for k in SPO_KW)
+                                      and not any(x in r["desc"] for x in SPO_EXCLUDE))
                                  )]
                     if new_today:
                         all_rows = all_rows + new_today
