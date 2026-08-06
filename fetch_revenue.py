@@ -90,6 +90,8 @@ OUTPUT_FILE        = os.path.join(os.path.dirname(os.path.abspath(__file__)), "�
 MONTHLY_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monthly_cache.json")
 TRS_CACHE_FILE     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trs_cache.json")
 QTR_CACHE_FILE     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_cache.json")
+QTR_ARCHIVE_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_archive.json")
+QTR_ARCHIVE_SEASONS = 1   # 保留最近 N 個封存季度（不含當季）
 EVENT_CACHE_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "event_cache.json")
 HIST_PRICE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hist_price_cache.json")
 NEWS_TS_FILE       = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_fetch_ts.json")
@@ -1516,6 +1518,23 @@ def save_spo_cache(df_all: pd.DataFrame, existing: list) -> None:
 
 def load_qtr_cache() -> list:
     return _load_cache(QTR_CACHE_FILE)
+
+
+def load_qtr_archive() -> dict:
+    """載入季報封存：{season_label → rows_html}"""
+    try:
+        with open(QTR_ARCHIVE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_qtr_archive(archive: dict) -> None:
+    try:
+        with open(QTR_ARCHIVE_FILE, "w", encoding="utf-8") as f:
+            json.dump(archive, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"  ⚠️ 季報封存寫入失敗：{e}")
 
 def save_qtr_cache(df_today: pd.DataFrame, existing: list) -> None:
     _save_cache(QTR_CACHE_FILE, df_today, existing,
@@ -3877,25 +3896,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <!-- ═══ 季報分頁 ═══ -->
   <div id="tab-qtr" class="tab-pane">
-    <div class="row g-3 mb-3">
-      <div class="col-6 col-md-3">
-        <div class="card stat-card">
-          <div class="num text-primary">{qtr_total}</div>
-          <div class="lbl">申報公司數</div>
-        </div>
+    <div class="d-flex align-items-center gap-3 mb-3">
+      <div class="card stat-card" style="min-width:110px;text-align:center;padding:.75rem 1.25rem">
+        <div class="num text-primary">{qtr_total}</div>
+        <div class="lbl">申報公司數</div>
       </div>
-      <div class="col-6 col-md-3">
-        <div class="card stat-card">
-          <div class="num pos">{qtr_eps_pos}</div>
-          <div class="lbl">EPS &gt; 0 家</div>
-        </div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="card stat-card">
-          <div class="num neg">{qtr_eps_neg}</div>
-          <div class="lbl">EPS &lt; 0 家</div>
-        </div>
-      </div>
+      {qtr_season_dropdown}
     </div>
 
     <div class="card mb-3">
@@ -4308,6 +4314,25 @@ $(document).ready(function() {{
 
   // ── 季報表 ──
   if($('#qtrTable').length) {{
+    function _qtrDrawCb() {{
+      var api = this.api();
+      $(api.table().node()).find('tr.group-sep').remove();
+      var rows = api.rows({{order:'applied',search:'applied'}}).nodes();
+      var grps = api.column(0,{{order:'applied',search:'applied'}}).data();
+      var last = null;
+      grps.each(function(g,i) {{
+        if(last !== g) {{
+          var cnt = grps.filter(function(v){{return v===g;}}).length;
+          var label = g==='0'
+            ? '市場未反映（13:30 後公告）<span style="font-weight:400;margin-left:.5rem;">'+cnt+' 筆</span>'
+            : '歷史公告<span style="font-weight:400;margin-left:.5rem;">'+cnt+' 筆</span>';
+          var bg  = g==='0' ? '#fff3d6' : '#f0f2f8';
+          var bdr = g==='0' ? '#e65c00' : '#c0c8e0';
+          $(rows[i]).before('<tr class="group-sep"><td colspan="15" style="background:'+bg+';border-top:2px solid '+bdr+';font-weight:600;font-size:.82rem;padding:.4rem 1rem;">'+label+'</td></tr>');
+          last = g;
+        }}
+      }});
+    }}
     var qtrT = $('#qtrTable').DataTable({{
       paging: false,
       order: [[4,'desc']],
@@ -4315,25 +4340,7 @@ $(document).ready(function() {{
       columnDefs: [{{ targets:0, visible:false, searchable:false }}],
       language: {{ search:'搜尋：', lengthMenu:'每頁 _MENU_ 筆', info:'第 _START_-_END_ 筆，共 _TOTAL_ 筆',
         paginate:{{first:'首頁',last:'末頁',next:'下頁',previous:'上頁'}}, zeroRecords:'無資料' }},
-      drawCallback: function() {{
-        var api = this.api();
-        $(api.table().node()).find('tr.group-sep').remove();
-        var rows = api.rows({{order:'applied',search:'applied'}}).nodes();
-        var grps = api.column(0,{{order:'applied',search:'applied'}}).data();
-        var last = null;
-        grps.each(function(g,i) {{
-          if(last !== g) {{
-            var cnt = grps.filter(function(v){{return v===g;}}).length;
-            var label = g==='0'
-              ? '市場未反映（13:30 後公告）<span style="font-weight:400;margin-left:.5rem;">'+cnt+' 筆</span>'
-              : '歷史公告<span style="font-weight:400;margin-left:.5rem;">'+cnt+' 筆</span>';
-            var bg  = g==='0' ? '#fff3d6' : '#f0f2f8';
-            var bdr = g==='0' ? '#e65c00' : '#c0c8e0';
-            $(rows[i]).before('<tr class="group-sep"><td colspan="15" style="background:'+bg+';border-top:2px solid '+bdr+';font-weight:600;font-size:.82rem;padding:.4rem 1rem;">'+label+'</td></tr>');
-            last = g;
-          }}
-        }});
-      }}
+      drawCallback: _qtrDrawCb
     }});
     $('#qtrMkt').on('change', function(){{ qtrT.column(1).search(this.value).draw(); }});
     $.fn.dataTable.ext.search.push(function(s,d) {{
@@ -4349,8 +4356,32 @@ $(document).ready(function() {{
       qtrT.column(1).search('').draw(); qtrT.draw();
     }});
 
+    // ── 封存季度切換 ──
+    var _qtrArchive = {qtr_archive_json};
+    var _qtrBaseRows = $('#qtrTable tbody').html();
+    var _detCurrent = window.QTR_DETAIL || {{}};
+    $(document).on('click', '.qtr-season-item', function(e) {{
+      e.preventDefault();
+      var season = $(this).data('season') || '';
+      $('.qtr-season-item').removeClass('active');
+      $(this).addClass('active');
+      $('#qtrSeasonLabel').text($(this).text());
+      var html = season ? (_qtrArchive[season] || '') : _qtrBaseRows;
+      if ($.fn.DataTable.isDataTable('#qtrTable')) qtrT.destroy();
+      $('#qtrTable tbody').html(html);
+      qtrT = $('#qtrTable').DataTable({{
+        paging: false,
+        order: [[4,'desc']],
+        orderFixed: {{ pre: [[0,'asc']] }},
+        columnDefs: [{{ targets:0, visible:false, searchable:false }}],
+        language: {{ search:'搜尋：', info:'共 _TOTAL_ 筆', zeroRecords:'無資料' }},
+        drawCallback: _qtrDrawCb
+      }});
+      _det = season ? {{}} : _detCurrent;
+    }});
+
     // ── 季報 detail panel（點擊列展開） ──
-    var _det = window.QTR_DETAIL || {{}};
+    var _det = _detCurrent;
     var _colCount = $('#qtrTable thead tr th').length;
     function _fmtN(v, isEps) {{
       if (v === null || v === undefined) return '<span style="color:var(--muted)">—</span>';
@@ -4985,11 +5016,72 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             </thead>
             <tbody>{qtr_rows}</tbody>
           </table></div>"""
+
+        # ── 季度封存 ──
+        def _prev_qtr(s: str) -> str:
+            try:
+                yr, n = s.upper().split("Q"); yr, n = int(yr), int(n)
+                return f"{yr-1}Q4" if n == 1 else f"{yr}Q{n-1}"
+            except Exception:
+                return ""
+
+        _curr_season = (df_qtr["季度"].dropna()
+                        .map(lambda q: (int(q[:3]) * 10 + int(q[4:])) if len(q) >= 5 and "Q" in q else 0)
+                        .idxmax() if not df_qtr.empty else None)
+        _curr_season_str = str(df_qtr.loc[_curr_season, "季度"]) if _curr_season is not None else ""
+        _prev_season_str = _prev_qtr(_curr_season_str)
+
+        _qtr_archive = load_qtr_archive()
+        _qtr_archive[_curr_season_str] = qtr_rows   # 更新當季 snapshot
+        # 補建上季 rows（若尚未封存）
+        if _prev_season_str and _prev_season_str not in _qtr_archive:
+            _cache_all = load_qtr_cache()
+            _prev_rows_list = [r for r in _cache_all if str(r.get("季度", "")) == _prev_season_str]
+            if _prev_rows_list:
+                _prev_df = pd.DataFrame(_prev_rows_list)
+                _prev_html = "\n".join(
+                    build_qtr_row(r, {}) for _, r in _prev_df.iterrows()
+                )
+                _qtr_archive[_prev_season_str] = _prev_html
+        # 修剪：保留當季 + 最近 QTR_ARCHIVE_SEASONS 個封存季
+        _sorted_seasons = sorted(
+            _qtr_archive.keys(),
+            key=lambda q: (int(q[:3]) * 10 + int(q[4:])) if len(q) >= 5 and "Q" in q else 0,
+            reverse=True
+        )
+        _qtr_archive = {k: _qtr_archive[k] for k in _sorted_seasons[:QTR_ARCHIVE_SEASONS + 1]}
+        save_qtr_archive(_qtr_archive)
+
+        # 下拉 HTML
+        _qtr_dd_items = (
+            '<li><a class="dropdown-item qtr-season-item active" data-season="" href="#">'
+            f'本季（{_curr_season_str}）</a></li>'
+        )
+        for _s in _sorted_seasons[1:QTR_ARCHIVE_SEASONS + 1]:
+            _qtr_dd_items += (
+                f'<li><a class="dropdown-item qtr-season-item" data-season="{_s}" href="#">'
+                f'{_s}</a></li>'
+            )
+        qtr_season_dropdown = (
+            '<div class="dropdown d-inline-block">'
+            '<button class="btn btn-sm btn-outline-secondary dropdown-toggle" '
+            'type="button" data-bs-toggle="dropdown">'
+            f'<span id="qtrSeasonLabel">本季（{_curr_season_str}）</span>'
+            '</button>'
+            f'<ul class="dropdown-menu">{_qtr_dd_items}</ul>'
+            '</div>'
+        )
+        qtr_archive_json = json.dumps(
+            {k: v for k, v in _qtr_archive.items() if k != _curr_season_str},
+            ensure_ascii=False
+        )
     else:
         qtr_total = qtr_eps_pos = qtr_eps_neg = 0
         qtr_oper_avg = "-"
         qtr_after_close = ""
         qtr_content = '<div class="no-data">⚠️ 季報資料暫無法取得，API 可能尚未提供當期資料</div>'
+        qtr_season_dropdown = ""
+        qtr_archive_json = "{}"
 
     # 庫藏股
     today = datetime.now().date()
@@ -5256,10 +5348,11 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         updated=updated, rev_period=rev_period,
         rev_period_disp=rev_period_disp, rev_total=rev_total, rev_latest=rev_latest,
         rev_rows=rev_rows,
-        qtr_total=qtr_total, qtr_eps_pos=qtr_eps_pos,
-        qtr_eps_neg=qtr_eps_neg, qtr_oper_avg=qtr_oper_avg,
+        qtr_total=qtr_total, qtr_oper_avg=qtr_oper_avg,
         qtr_after_close=qtr_after_close,
         qtr_content=qtr_content,
+        qtr_season_dropdown=qtr_season_dropdown,
+        qtr_archive_json=qtr_archive_json,
         trs_active=trs_active, trs_done=trs_done,
         trs_new=trs_new, trs_unreact=trs_unreact,
         trs_unreact_badge=trs_unreact_badge,
