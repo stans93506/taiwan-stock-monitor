@@ -3896,11 +3896,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <!-- ═══ 季報分頁 ═══ -->
   <div id="tab-qtr" class="tab-pane">
-    <div class="d-flex align-items-center gap-3 mb-3">
-      <div class="card stat-card" style="min-width:110px;text-align:center;padding:.75rem 1.25rem">
-        <div class="num text-primary">{qtr_total}</div>
-        <div class="lbl">申報公司數</div>
-      </div>
+    <div class="d-flex align-items-center gap-4 mb-3 px-1" style="font-size:.92rem;color:var(--text);">
+      <span>申報公司數：<strong style="color:#1f6feb;">{qtr_total} 家</strong></span>
+      <span style="color:#bbb;">|</span>
+      <span style="color:var(--text)">{qtr_deadline}</span>
+      <span style="color:#bbb;">|</span>
       {qtr_season_dropdown}
     </div>
 
@@ -5031,6 +5031,21 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         _curr_season_str = str(df_qtr.loc[_curr_season, "季度"]) if _curr_season is not None else ""
         _prev_season_str = _prev_qtr(_curr_season_str)
 
+        # 截止日
+        def _qtr_deadline_str(season: str) -> str:
+            try:
+                _y, _n = season.upper().split("Q"); _y, _n = int(_y), int(_n)
+                _labels = {
+                    1: f"第一季季報（Q1）：{_y}年5月15日前",
+                    2: f"第二季半年報（Q2）：{_y}年8月14日前",
+                    3: f"第三季季報（Q3）：{_y}年11月14日前",
+                    4: f"第四季年報（Q4）：{_y+1}年3月31日前",
+                }
+                return _labels.get(_n, "")
+            except Exception:
+                return ""
+        qtr_deadline = _qtr_deadline_str(_curr_season_str)
+
         _qtr_archive = load_qtr_archive()
         _qtr_archive[_curr_season_str] = qtr_rows   # 更新當季 snapshot
         # 補建上季 rows（若尚未封存）
@@ -5082,6 +5097,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         qtr_content = '<div class="no-data">⚠️ 季報資料暫無法取得，API 可能尚未提供當期資料</div>'
         qtr_season_dropdown = ""
         qtr_archive_json = "{}"
+        qtr_deadline = ""
 
     # 庫藏股
     today = datetime.now().date()
@@ -5353,6 +5369,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         qtr_content=qtr_content,
         qtr_season_dropdown=qtr_season_dropdown,
         qtr_archive_json=qtr_archive_json,
+        qtr_deadline=qtr_deadline,
         trs_active=trs_active, trs_done=trs_done,
         trs_new=trs_new, trs_unreact=trs_unreact,
         trs_unreact_badge=trs_unreact_badge,
