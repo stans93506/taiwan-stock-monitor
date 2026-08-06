@@ -4064,6 +4064,7 @@ function switchTab(id, btn) {{
 $(document).ready(function() {{
 
   // ── 營收表（11欄：隱藏群組/市場/代號/名稱/AI評分/公布時間/營收/MOM%/YOY%/累計YOY%/備註）──
+  var _revBaseRows = $('#revTable tbody').html();   // 必須在 DataTable init 前存
   function _revDrawCb() {{
     var api = this.api();
     $(api.table().node()).find('tr.rev-group-sep').remove();
@@ -4095,7 +4096,6 @@ $(document).ready(function() {{
     ],
     drawCallback: _revDrawCb
   }});
-  var _revBaseRows = $('#revTable tbody').html();
   $('#revMkt').on('change', function() {{ revT.column(1).search(this.value).draw(); }});
   $.fn.dataTable.ext.search.push(function(s,d,i,row,c) {{
     if(!$.fn.DataTable.isDataTable('#revTable')) return true;
@@ -4314,6 +4314,7 @@ $(document).ready(function() {{
 
   // ── 季報表 ──
   if($('#qtrTable').length) {{
+    var _qtrBaseRows = $('#qtrTable tbody').html();   // 必須在 DataTable init 前存
     function _qtrDrawCb() {{
       var api = this.api();
       $(api.table().node()).find('tr.group-sep').remove();
@@ -4358,7 +4359,6 @@ $(document).ready(function() {{
 
     // ── 封存季度切換 ──
     var _qtrArchive = {qtr_archive_json};
-    var _qtrBaseRows = $('#qtrTable tbody').html();
     var _detCurrent = window.QTR_DETAIL || {{}};
     $(document).on('click', '.qtr-season-item', function(e) {{
       e.preventDefault();
