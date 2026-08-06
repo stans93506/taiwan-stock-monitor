@@ -3835,6 +3835,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <span>已申報：<strong style="color:#1f6feb;">{rev_total} 家</strong></span>
       <span style="color:#bbb;">|</span>
       <span>最新申報：<strong>{rev_latest}</strong></span>
+      <span style="color:#bbb;">|</span>
+      {rev_month_dropdown}
     </div>
 
     <div class="card mb-3">
@@ -3855,10 +3857,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <div class="card">
-      <div class="card-header px-3 py-2 d-flex align-items-center gap-2">
-        <span>營收明細（{rev_period}）</span>
-        {rev_month_dropdown}
-      </div>
+      <div class="card-header px-3 py-2">營收明細（{rev_period}）</div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table id="revTable" class="table table-hover mb-0 w-100">
