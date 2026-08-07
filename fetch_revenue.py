@@ -2240,11 +2240,11 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
 
     # ── 「稅後/稅前EPS」格式（如3293鈊象：稅前EPS為4.55元）：稅後優先 ──
     if eps is None:
-        m_at = re.search(r'稅後EPS[^\d（\(－-]{0,5}(-?[\d.]+)', text)
+        m_at = re.search(r'稅後EPS[^\d（\(－-]{0,40}(-?[\d.]+)', text)
         if m_at:
             eps = _parse_num(m_at.group(1))
     if eps is None:
-        m_bt = re.search(r'稅前EPS[^\d（\(－-]{0,5}(-?[\d.]+)', text)
+        m_bt = re.search(r'稅前EPS[^\d（\(－-]{0,40}(-?[\d.]+)', text)
         if m_bt:
             eps = _parse_num(m_bt.group(1))
 
