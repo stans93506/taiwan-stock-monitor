@@ -1,8 +1,9 @@
 name: 每日更新台股監測
 
 on:
-  workflow_dispatch:
-    # 由 cron-job.org 外部觸發，精準控制執行時間
+  workflow_dispatch:   # 保留手動觸發
+  schedule:
+    - cron: '*/30 * * * *'   # 每 30 分鐘自動執行（UTC 時間）
 
 jobs:
   update:
@@ -24,6 +25,8 @@ jobs:
 
       - name: 執行監測腳本
         run: python fetch_revenue.py
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
       - name: 複製為 index.html（供 GitHub Pages 使用）
         run: cp 台股監測.html index.html

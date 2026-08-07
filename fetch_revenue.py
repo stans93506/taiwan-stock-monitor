@@ -108,7 +108,7 @@ REV_HIST_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "r
 REV_HIST_MONTHS    = 60   # 保留最近幾個月的歷史月營收
 # 不適用季報頁面的股票代碼（不公布 EPS 或格式不符，如投資控股、特殊目的公司）
 QTR_SKIP_CODES = {"7631"}
-GROQ_API_KEY       = "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"  # Groq 免費 API
+GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")  # Groq 免費 API
 
 HEADERS = {
     "User-Agent": (
