@@ -6488,18 +6488,27 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                       .reset_index(drop=True))
 
     # 月自結「上季」用：dedup 後的 df_qtr 每家公司已是最新季度（Q2 已申報者用 Q2，否則 Q1）
+    # Q2/Q3/Q4 公告 EPS 為累計值，需減去上期累計才是單季（與 build_qtr_row 邏輯一致）
     _qtr_latest_for_monthly: dict = {}
     if df_qtr is not None and not df_qtr.empty:
+        def _nv(v):
+            return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
         for _, _r in df_qtr.iterrows():
             _c = str(_r.get("股票代碼", "")).strip()
             _season = str(_r.get("季度", "")).strip()
             if not _c or not _season:
                 continue
-            def _nv(v):
-                return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
+            _raw_eps = _nv(_r.get("EPS"))
+            # 非 Q1：扣掉上期累計 EPS 算出單季（prev_full_lookup 存的是上一期 row）
+            _is_q1 = _season.upper().endswith("Q1")
+            if not _is_q1 and _raw_eps is not None and _c in prev_full_lookup:
+                _prev_eps = _nv(prev_full_lookup[_c].get("EPS"))
+                _adj_eps = round(_raw_eps - _prev_eps, 2) if _prev_eps is not None else None
+            else:
+                _adj_eps = _raw_eps
             _qtr_latest_for_monthly[_c] = {
                 "上季季度":  _season,
-                "上季EPS":   _nv(_r.get("EPS")),
+                "上季EPS":   _adj_eps,
                 "上季毛利率": _nv(_r.get("毛利率")),
                 "上季營益率": _nv(_r.get("營益率")),
                 "上季業外%":  _nv(_r.get("業外%")),
