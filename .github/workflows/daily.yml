@@ -23,6 +23,9 @@ jobs:
       - name: 安裝套件
         run: pip install -r requirements.txt
 
+      - name: 安裝 Playwright 瀏覽器
+        run: playwright install chromium --with-deps
+
       - name: 執行監測腳本
         run: python fetch_revenue.py
         env:

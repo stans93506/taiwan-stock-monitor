@@ -2040,7 +2040,7 @@ def fetch_prev_quarter_data() -> dict:
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
-            channel="chrome", headless=True,
+            headless=True,
             args=["--disable-blink-features=AutomationControlled",
                   "--ignore-certificate-errors"]
         )
@@ -5652,7 +5652,7 @@ def fetch_t05st02() -> tuple:
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
-            channel="chrome", headless=True,
+            headless=True,
             args=["--disable-blink-features=AutomationControlled",
                   "--ignore-certificate-errors"]
         )
