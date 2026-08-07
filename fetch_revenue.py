@@ -6588,21 +6588,26 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         monthly_needed = set(df_monthly["股票代碼"].astype(str).str.strip().unique())
         monthly_prev_data = load_monthly_prev_cache(_prev_label)
         print(f"  月自結 prev cache：{len(monthly_prev_data)} 家（{_prev_label}）")
-        # EPS=None 的視同缺漏，需重查（防止 cache 建立時 Q1 尚未公告而永久卡空值）
+
+        # ① df_qtr 最新季覆蓋所有月自結公司（不管 cache 有無，確保資料最新正確）
+        #    Q2 已申報者用 Q2 單季，否則 Q1；直接取自季報欄位，不受累計值影響
+        qtr_override_n = 0
+        for code in list(monthly_needed):
+            if code in _qtr_latest_for_monthly:
+                d = _qtr_latest_for_monthly[code]
+                if d.get("上季EPS") is not None:
+                    monthly_prev_data[code] = d
+                    qtr_override_n += 1
+        if qtr_override_n:
+            print(f"  月自結 df_qtr 覆蓋：{qtr_override_n} 家（含 cache 既有）")
+
+        # EPS 仍缺漏的才走補查流程
         monthly_missing = [c for c in monthly_needed
                            if c not in monthly_prev_data
                            or monthly_prev_data[c].get("上季EPS") is None]
         if monthly_missing:
-            # ① df_qtr 最新季（Q2 已申報者用 Q2，否則 Q1）—— 最優先
-            for code in list(monthly_missing):
-                if code in _qtr_latest_for_monthly:
-                    d = _qtr_latest_for_monthly[code]
-                    if d.get("上季EPS") is not None:
-                        monthly_prev_data[code] = d
-            still_m1 = [c for c in monthly_missing
-                        if monthly_prev_data.get(c, {}).get("上季EPS") is None]
             # ② _q164_prev 含上季（_prev_label）CSV 資料（curr_supp 是本季，不適用）
-            for code in still_m1:
+            for code in list(monthly_missing):
                 if code in (_q164_prev or {}):
                     d = _q164_prev[code]
                     if d.get("EPS") is not None:
@@ -6619,15 +6624,14 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
             if still_m:
                 print(f"  月自結 t163sb15 補查 {len(still_m)} 家...", end="", flush=True)
                 new_m = fetch_prev_quarter_t164sb04(pd.DataFrame({"股票代碼": still_m}))
-                # 只更新有取到 EPS 的（避免覆蓋既有的 None 讓下次繼續重查）
                 for code, val in new_m.items():
                     if val.get("EPS") is not None or code not in monthly_prev_data:
                         monthly_prev_data[code] = val
                 print(f" {len(new_m)} 家")
-            save_monthly_prev_cache(_prev_label, monthly_prev_data)
-            filled = sum(1 for c in monthly_needed
-                         if monthly_prev_data.get(c, {}).get("上季EPS") is not None)
-            print(f"  月自結 prev：{filled}/{len(monthly_needed)} 家有 EPS（cache 更新）")
+        save_monthly_prev_cache(_prev_label, monthly_prev_data)
+        filled = sum(1 for c in monthly_needed
+                     if monthly_prev_data.get(c, {}).get("上季EPS") is not None)
+        print(f"  月自結 prev：{filled}/{len(monthly_needed)} 家有 EPS（cache 更新）")
     print()
 
     if not df_trs.empty:
