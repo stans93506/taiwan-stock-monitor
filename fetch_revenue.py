@@ -6486,6 +6486,24 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                       .drop_duplicates(subset=["股票代碼"], keep="first")
                       .drop(columns=["_qnum"])
                       .reset_index(drop=True))
+
+    # 月自結「上季」用：dedup 後的 df_qtr 每家公司已是最新季度（Q2 已申報者用 Q2，否則 Q1）
+    _qtr_latest_for_monthly: dict = {}
+    if df_qtr is not None and not df_qtr.empty:
+        for _, _r in df_qtr.iterrows():
+            _c = str(_r.get("股票代碼", "")).strip()
+            _season = str(_r.get("季度", "")).strip()
+            if not _c or not _season:
+                continue
+            def _nv(v):
+                return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
+            _qtr_latest_for_monthly[_c] = {
+                "上季季度":  _season,
+                "上季EPS":   _nv(_r.get("EPS")),
+                "上季毛利率": _nv(_r.get("毛利率")),
+                "上季營益率": _nv(_r.get("營益率")),
+                "上季業外%":  _nv(_r.get("業外%")),
+            }
     print()
 
     print("【上季對比 + 本季補充】載入...")
@@ -6539,12 +6557,18 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         save_prev_data_cache(_prev_label, prev_data)
         print(f"  prev_data 共 {len(prev_data)} 家（cache 已更新）")
 
-    # curr_supp（本季補充）仍透過 t164 取得（只取當季，不跑上季 CSV）
+    # curr_supp（本季補充）+ _q164_prev（上季 CSV，供月自結補查）
+    # 合併季報與月自結代碼，讓上季 CSV 同時涵蓋兩者
     try:
-        _, curr_supp = fetch_prev_quarter_t164(
-            df_qtr if df_qtr is not None else pd.DataFrame())
+        _parts = []
+        if df_qtr is not None and not df_qtr.empty and "股票代碼" in df_qtr.columns:
+            _parts.append(df_qtr[["股票代碼"]])
+        if df_monthly is not None and not df_monthly.empty and "股票代碼" in df_monthly.columns:
+            _parts.append(df_monthly[["股票代碼"]])
+        _combined_codes_df = pd.concat(_parts, ignore_index=True) if _parts else pd.DataFrame()
+        _q164_prev, curr_supp = fetch_prev_quarter_t164(_combined_codes_df)
     except Exception:
-        curr_supp = {}
+        _q164_prev, curr_supp = {}, {}
     # 把本季補充數字填回 df_qtr
     if curr_supp and df_qtr is not None:
         col_map = {col: {c: d.get(col) for c, d in curr_supp.items()}
@@ -6569,11 +6593,19 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                            if c not in monthly_prev_data
                            or monthly_prev_data[c].get("上季EPS") is None]
         if monthly_missing:
-            # ① curr_supp 已含本季（Q1）CSV 資料
+            # ① df_qtr 最新季（Q2 已申報者用 Q2，否則 Q1）—— 最優先
             for code in list(monthly_missing):
-                if code in (curr_supp or {}):
-                    d = curr_supp[code]
-                    if d.get("EPS") is not None:   # 只有真的有值才填入
+                if code in _qtr_latest_for_monthly:
+                    d = _qtr_latest_for_monthly[code]
+                    if d.get("上季EPS") is not None:
+                        monthly_prev_data[code] = d
+            still_m1 = [c for c in monthly_missing
+                        if monthly_prev_data.get(c, {}).get("上季EPS") is None]
+            # ② _q164_prev 含上季（_prev_label）CSV 資料（curr_supp 是本季，不適用）
+            for code in still_m1:
+                if code in (_q164_prev or {}):
+                    d = _q164_prev[code]
+                    if d.get("EPS") is not None:
                         monthly_prev_data[code] = {
                             "上季季度":  _prev_label,
                             "上季EPS":   d.get("EPS"),
@@ -6583,7 +6615,7 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                         }
             still_m = [c for c in monthly_missing
                        if monthly_prev_data.get(c, {}).get("上季EPS") is None]
-            # ② t163sb15 補查
+            # ③ t163sb15 補查
             if still_m:
                 print(f"  月自結 t163sb15 補查 {len(still_m)} 家...", end="", flush=True)
                 new_m = fetch_prev_quarter_t164sb04(pd.DataFrame({"股票代碼": still_m}))
