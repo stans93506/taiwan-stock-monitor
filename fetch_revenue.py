@@ -106,6 +106,7 @@ SPO_CACHE_FILE     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "s
 SPO_CACHE_DAYS     = 90   # 現增：公告到新股掛牌可能跨月，保留 90 天
 REV_HIST_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rev_hist_cache.json")
 REV_HIST_MONTHS    = 60   # 保留最近幾個月的歷史月營收
+MONTHLY_QTR_HIST_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monthly_qtr_hist_cache.json")
 # 不適用季報頁面的股票代碼（不公布 EPS 或格式不符，如投資控股、特殊目的公司）
 QTR_SKIP_CODES = {"7631"}
 GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")  # Groq 免費 API
@@ -1930,6 +1931,122 @@ def fetch_prev_quarter_t164(df_qtr: pd.DataFrame) -> tuple:
     return prev_data, curr_supp
 
 
+def fetch_monthly_qtr_history(codes: list, expected_latest_q: str) -> dict:
+    """
+    從 t163sb15 抓月自結公司的近4季季報資料（單季值）。
+    cache 以 expected_latest_q 做版本判斷，新季度出來後自動重抓。
+    回傳 {code: {"latest_q": ..., "quarters": [{q, eps, gm, op}, ...]}}
+    """
+    if not codes:
+        return {}
+
+    # 讀 cache
+    cache: dict = {}
+    try:
+        with open(MONTHLY_QTR_HIST_FILE, encoding="utf-8") as _f:
+            cache = json.load(_f)
+    except Exception:
+        pass
+
+    # 哪些 code 需要重抓（cache 不存在或 latest_q 不符）
+    to_fetch = [c for c in codes
+                if c not in cache or cache[c].get("latest_q") != expected_latest_q]
+    if not to_fetch:
+        return cache
+
+    now = datetime.now()
+    roc = now.year - 1911
+    curr_yr  = roc
+    prev_yr  = roc - 1
+
+    s = _mops_session(HEADERS["User-Agent"])
+    BASE = "https://mopsov.twse.com.tw"
+    s.get(f"{BASE}/mops/web/index", timeout=10, verify=False)
+
+    def _parse_num_q(txt: str):
+        t = txt.strip().replace(",", "").replace("\xa0", "")
+        if t in ("", "--", "-", "－"): return None
+        try: return float(t)
+        except: return None
+
+    def _fetch_html(code: str, year: int) -> str:
+        r = s.post(f"{BASE}/mops/web/ajax_t163sb15",
+                   data={"encodeURIComponent": "1", "step": "1", "firstin": "1",
+                         "co_id": code, "year": str(year)},
+                   timeout=15, verify=False)
+        html = r.text
+        if "詳細資料" in html and "基本每股盈餘" not in html:
+            r2 = s.post(f"{BASE}/mops/web/ajax_t163sb15",
+                        data={"encodeURIComponent": "1", "step": "2", "firstin": "0",
+                              "co_id": code, "year": str(year)},
+                        timeout=15, verify=False)
+            html = r2.text
+        return html
+
+    def _parse_year(html: str, year: int) -> list:
+        """解析單年度 t163sb15，回傳該年度各季的單季財務數字列表。"""
+        soup = BeautifulSoup(html, "html.parser")
+        found: dict = {}
+        for tr in soup.select("table tr"):
+            cells = tr.find_all(["th", "td"])
+            if len(cells) < 2:
+                continue
+            name = cells[0].get_text(strip=True)
+            vals = [_parse_num_q(c.get_text(strip=True)) for c in cells[1:5]]
+            if "營業收入" in name and "rev" not in found:
+                found["rev"] = vals
+            elif "營業毛利" in name and "淨額" not in name and "gross" not in found:
+                found["gross"] = vals
+            elif "營業利益" in name and "oper" not in found:
+                found["oper"] = vals
+            elif "基本每股盈餘" in name and "eps" not in found:
+                found["eps"] = vals
+        rev   = found.get("rev",   [None]*4)
+        gross = found.get("gross", [None]*4)
+        oper  = found.get("oper",  [None]*4)
+        eps   = found.get("eps",   [None]*4)
+        result = []
+        for i in range(4):
+            if eps[i] is None:
+                continue
+            # 單季值 = 累計值 - 前期累計值
+            def _q(lst, idx):
+                return lst[idx] if idx == 0 else (
+                    (lst[idx] - lst[idx-1]) if lst[idx] is not None and lst[idx-1] is not None else None
+                )
+            e = _q(eps, i); r = _q(rev, i); g = _q(gross, i); o = _q(oper, i)
+            if e is None:
+                continue
+            gm = round(g / r * 100, 2) if r and g is not None and r != 0 else None
+            op = round(o / r * 100, 2) if r and o is not None and r != 0 else None
+            result.append({"q": f"{year}Q{i+1}", "eps": round(e, 2), "gm": gm, "op": op})
+        return result
+
+    print(f"  【月自結季報歷史】t163sb15 抓取 {len(to_fetch)} 家...", end="", flush=True)
+    ok = 0
+    for code in to_fetch:
+        try:
+            r_curr = _parse_year(_fetch_html(code, curr_yr), curr_yr)
+            time.sleep(0.3)
+            r_prev = _parse_year(_fetch_html(code, prev_yr), prev_yr)
+            time.sleep(0.3)
+            all_q = sorted(r_curr + r_prev, key=lambda x: x["q"], reverse=True)[:4]
+            if all_q:
+                cache[code] = {"latest_q": expected_latest_q, "quarters": all_q}
+                ok += 1
+        except Exception:
+            pass
+    print(f" {ok}/{len(to_fetch)} 家")
+
+    try:
+        with open(MONTHLY_QTR_HIST_FILE, "w", encoding="utf-8") as _f:
+            json.dump(cache, _f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+    return cache
+
+
 def fetch_prev_quarter_data() -> dict:
     """用 Playwright + t05st01 查前一季截止日前 10 個交易日，取財務數字（含毛利率）"""
     try:
@@ -2175,7 +2292,9 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
 
     # 必須含財務數字關鍵字，否則不是真正的月自結（例如可轉債注意交易訊息）
     if not any(kw in text for kw in ("財務業務資訊", "每股盈餘", "稅前淨利", "每股淨利",
-                                     "稅前EPS", "稅後EPS", "每股稅後純益", "每股稅後盈餘", "每股稅前盈餘")):
+                                     "稅前EPS", "稅後EPS", "每股稅後純益", "每股稅後盈餘", "每股稅前盈餘",
+                                     "EPS(元)", "EPS（元）", "累積每股",
+                                     "每股稅後", "每股稅前", "稅後淨")):
         return {}
 
     # ── 月份（資料月份，非公告日） ──
@@ -2239,14 +2358,75 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
             eps = _parse_num(m_bt.group(1))
 
     # ── 「稅後/稅前EPS」格式（如3293鈊象：稅前EPS為4.55元）：稅後優先 ──
+    # 允許 EPS 後緊接 (元)/（元） 標籤（如6021格式：稅後EPS(元)   2.51）
     if eps is None:
-        m_at = re.search(r'稅後EPS[^\d（\(－-]{0,40}(-?[\d.]+)', text)
+        m_at = re.search(r'稅後EPS(?:[（(]元[）)])?[^\d（\(－-]{0,40}(-?[\d.]+)', text)
         if m_at:
             eps = _parse_num(m_at.group(1))
     if eps is None:
-        m_bt = re.search(r'稅前EPS[^\d（\(－-]{0,40}(-?[\d.]+)', text)
+        m_bt = re.search(r'稅前EPS(?:[（(]元[）)])?[^\d（\(－-]{0,40}(-?[\d.]+)', text)
         if m_bt:
             eps = _parse_num(m_bt.group(1))
+
+    # ── 裕融格式：EPS(元) 欄位標頭 + 數值行（第51款，取月份段第4欄 = 未追溯調整EPS）──
+    # 格式：稅前 稅後 歸屬母公司股東 EPS(元) EPS(元)(註)
+    #       523.9  407.2  410.5  0.68  0.67
+    if eps is None:
+        _m_sect = re.split(r'累積|累計', text, maxsplit=1)[0]
+        m_col = re.search(
+            r'EPS[（(]元[）)][^\n]*\n'
+            r'[^\S\n]*(-?[\d,]+\.?\d*)[^\S\n]+'
+            r'(-?[\d,]+\.?\d*)[^\S\n]+'
+            r'(-?[\d,]+\.?\d*)[^\S\n]+'
+            r'(-?[\d.]+)',
+            _m_sect
+        )
+        if m_col:
+            eps = _parse_num(m_col.group(4))
+
+    # ── 玉山金控格式：多子公司表格，累積每股稅後盈餘最右欄，取第一行（= 母公司）──
+    # 格式：自結稅前 自結稅後 累積稅前 累積稅後  累積每股
+    #         盈餘     盈餘     純益     純益   稅後盈餘
+    #       (億元)   (億元)   (億元)   (億元)     (元)
+    # 玉山金控 34.30  30.10  302.02  244.45    1.51
+    if eps is None and '累積每股' in text:
+        _lines = text.split('\n')
+        _past_hdr = False
+        for _ln in _lines:
+            if '累積每股' in _ln:
+                _past_hdr = True
+            if _past_hdr:
+                _nums = re.findall(r'-?[\d,]+\.?\d*', _ln)
+                if len(_nums) >= 4:
+                    eps = _parse_num(_nums[-1])
+                    break  # 第一行 = 母公司
+
+    # ── 上海商銀格式：基本EPS(元) 在最右欄，數值行最後一個數字即 EPS ──
+    # 格式：合併稅前 母公司業主稅後 合併稅前(累計) 母公司業主稅後(累計) 基本EPS(元)
+    #       稅前   業主稅後          稅前           業主稅後
+    #       32.66  20.94            183.38          121.92              2.51
+    if eps is None and '基本EPS' in text:
+        m_hdr = re.search(
+            r'基本EPS[（(]元[）)][^\n]*\n'   # 含 EPS 的欄位標頭行
+            r'(?:[^\d\n]*\n)?'              # 可選：副標頭行（如「稅前 業主稅後」）
+            r'([^\n]+)',                    # 數值行
+            text
+        )
+        if m_hdr:
+            nums = re.findall(r'-?[\d,]+\.?\d*', m_hdr.group(1))
+            if nums:
+                eps = _parse_num(nums[-1])
+
+    # ── 「每股稅後盈餘/每股稅後(損)益」冒號格式（稅後優先於稅前）──
+    # 支援：每股稅後盈餘：0.78、每股稅後(損)益:-0.78、每股稅後純益：1.23
+    if eps is None:
+        m_at2 = re.search(r'每股稅後[^\d：:\n]{0,10}[：:]\s*(-?[\d.]+)', text)
+        if m_at2:
+            eps = _parse_num(m_at2.group(1))
+    if eps is None:
+        m_bt2 = re.search(r'每股稅前[^\d：:\n]{0,10}[：:]\s*(-?[\d.]+)', text)
+        if m_bt2:
+            eps = _parse_num(m_bt2.group(1))
 
     # ── fallback：純文字 regex（HTML 解析失敗時備用）──
     # 注意：MOPS 第51款公告多為純文字排版（非 HTML table）。
@@ -2412,11 +2592,12 @@ def build_monthly_row(row, prev: dict = None):
         sign = "+" if v >= 0 else ""
         return f"<td style='color:#6b7280'>{sign}{v:.2f}%</td>"
 
+    code = row.get('股票代碼', '')
     return (
-        f"<tr{tr_cls}>"
+        f"<tr{tr_cls} data-code='{code}'>"
         f"<td style='display:none'>{group}</td>"
         f"<td><span class='badge {badge}'>{mkt}</span></td>"
-        f"<td>{row.get('股票代碼','')}</td>"
+        f"<td>{code}</td>"
         f"<td>{row.get('公司名稱','')}</td>"
         f"<td>{time_cell}</td>"
         + ai_cell
@@ -3876,7 +4057,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <div class="card">
-      <div class="card-header px-3 py-2">營收明細（{rev_period}）</div>
+      <div class="card-header px-3 py-2">營收明細（{rev_period}）{rev_today_badge}</div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table id="revTable" class="table table-hover mb-0 w-100">
@@ -4553,6 +4734,85 @@ $(document).ready(function() {{
       }}
     }});
     $('#monthlyMkt').on('change', function(){{ mthT.column(1).search(this.value).draw(); }});
+
+    // ── 月自結 detail panel（點擊列展開過去4季） ──
+    var _mthQtrData = window.MONTHLY_QTR_DATA || {{}};
+    var _mthColCount = $('#monthlyTable thead tr th').length;
+    function _fmtMthEps(v) {{
+      if (v === null || v === undefined) return '<span style="color:var(--muted)">—</span>';
+      var pf = parseFloat(v);
+      var c = pf >= 0 ? '#fb8c00' : 'var(--text)';
+      return '<span style="color:'+c+';font-weight:600">'+(pf>=0?'+':'')+pf.toFixed(2)+'</span>';
+    }}
+    function _fmtMthMon(v) {{
+      if (v === null || v === undefined) return '<span style="color:var(--muted)">—</span>';
+      var pf = parseFloat(v) / 3;
+      var c = pf >= 0 ? '#fb8c00' : 'var(--text)';
+      return '<span style="color:'+c+';font-weight:600">'+(pf>=0?'+':'')+pf.toFixed(2)+'</span>';
+    }}
+    function _fmtMthPct(v) {{
+      if (v === null || v === undefined || isNaN(parseFloat(v))) return '<span style="color:var(--muted)">—</span>';
+      var pf = parseFloat(v);
+      var c = pf >= 0 ? '#fb8c00' : 'var(--text)';
+      return '<span style="color:'+c+'">'+(pf>=0?'+':'')+pf.toFixed(2)+'%</span>';
+    }}
+    function _buildMonthlyDetail(code) {{
+      var qtrs   = _mthQtrData[String(code)] || [];
+      var txtMap = window.MONTHLY_TEXT_DATA || {{}};
+      var ann    = txtMap[String(code)] || {{}};
+      if (!qtrs.length && !ann.title && !ann.text) return '';
+
+      // ── 左欄：公告標題 + 原文 ──
+      var leftHtml = '';
+      if (ann.title) leftHtml += '<div style="font-weight:600;font-size:.88rem;margin-bottom:.4rem;color:var(--text)">' + ann.title + '</div>';
+      if (ann.text)  leftHtml += '<div class="qtr-orig-text">' + ann.text.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
+
+      // ── 右欄：近4季比較表 + 免責聲明 ──
+      var rightHtml = '';
+      if (qtrs.length) {{
+        var dataPct = Math.floor(88 / qtrs.length);
+        var hdr = '<tr><td style="width:12%;text-align:left;color:var(--muted);font-weight:600;border-right:1px solid var(--border)">指標</td>';
+        for (var i=0; i<qtrs.length; i++)
+          hdr += '<td style="width:'+dataPct+'%;font-weight:700">'+qtrs[i].q+'</td>';
+        hdr += '</tr>';
+        var defs = [
+          ['季EPS',        function(d){{return _fmtMthEps(d.eps);}}],
+          ['月均EPS(÷3)', function(d){{return _fmtMthMon(d.eps);}}],
+          ['毛利率%',      function(d){{return _fmtMthPct(d.gm);}}],
+          ['營益率%',      function(d){{return _fmtMthPct(d.op);}}],
+        ];
+        var tbody = '';
+        for (var ri=0; ri<defs.length; ri++) {{
+          tbody += '<tr><td style="text-align:left;color:var(--muted);border-right:1px solid var(--border)">'+defs[ri][0]+'</td>';
+          for (var qi=0; qi<qtrs.length; qi++) tbody += '<td>'+defs[ri][1](qtrs[qi])+'</td>';
+          tbody += '</tr>';
+        }}
+        rightHtml += '<table class="qtr-detail-table" style="table-layout:fixed;width:100%"><thead>'+hdr+'</thead><tbody>'+tbody+'</tbody></table>';
+      }}
+      rightHtml += '<div style="margin-top:.5rem;font-size:.74rem;color:var(--muted);line-height:1.5">'
+        + '季度資料來自本站資料庫（已公佈季報），月均 = 季EPS ÷ 3<br>'
+        + '以下數字由 AI 自動從公告原文提取並推算，資料來源包含本站資料庫與公告原文，均可能存在解析錯誤，請務必對照下方原文及公開資訊觀測站查證。'
+        + '</div>';
+
+      var inner = '<div style="display:flex;align-items:flex-start;gap:1.5rem">'
+        + '<div style="flex:0 0 44%;min-width:0">' + leftHtml + '</div>'
+        + '<div style="flex:0 0 54%;min-width:0">' + rightHtml + '</div>'
+        + '</div>';
+
+      return '<tr class="qtr-detail-panel"><td colspan="'+_mthColCount+'" style="padding:0">'
+        +'<div class="qtr-detail-inner">'+inner+'</div>'
+        +'</td></tr>';
+    }}
+    $('#monthlyTable tbody').on('click', 'tr[data-code]', function() {{
+      var $tr   = $(this);
+      var $next = $tr.next('.qtr-detail-panel');
+      if ($next.length) {{ $next.remove(); $tr.removeClass('detail-open'); return; }}
+      $('#monthlyTable .qtr-detail-panel').remove();
+      $('#monthlyTable tr[data-code]').removeClass('detail-open');
+      var html = _buildMonthlyDetail(String($tr.data('code')));
+      if (!html) return;
+      $tr.after(html); $tr.addClass('detail-open');
+    }});
   }}
 
   // ── ETF 股票總表（11欄）──
@@ -4818,7 +5078,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                   df_spo: pd.DataFrame = None,
                   rev_hist_cache: dict = None,
                   prev_full_lookup: dict = None,
-                  rev_archive: dict = None) -> str:
+                  rev_archive: dict = None,
+                  qtr_history: dict = None) -> str:
     updated = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
     rev_period      = f"民國 {roc_year} 年 {month} 月"
     rev_period_disp = f"{roc_year + 1911}/{month:02d}"   # e.g. "2026/05"
@@ -4885,6 +5146,11 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         build_rev_row(r, _rev_group(r),
                       rev_hist_obj.get(str(r.get("股票代碼", "")).strip(), {}).get("h", []))
         for _, r in df_rev.iterrows()
+    )
+    rev_today_n = sum(1 for _, r in df_rev.iterrows() if _rev_group(r) == "0")
+    rev_today_badge = (
+        f"<span class='badge-unreact ms-2'>今日申報 {rev_today_n} 筆</span>"
+        if rev_today_n > 0 else ""
     )
 
     # 季報統計 + 內容
@@ -5180,7 +5446,39 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             build_monthly_row(r, _monthly_pd.get(str(r.get("股票代碼", ""))))
             for _, r in df_monthly.iterrows()
         )
-        monthly_content = f"""<div class="table-responsive">
+        # 每家公司最近4季的季報資料（供 detail panel 使用）
+        def _qnum_m(q):
+            try:
+                yr, n = str(q).split("Q"); return int(yr) * 10 + int(n)
+            except Exception:
+                return 0
+        _mth_qtr_map = {}
+        for _code, _qd in (qtr_history or {}).items():
+            _sq = sorted(_qd.keys(), key=_qnum_m, reverse=True)[:4]
+            _entries = []
+            for _q in _sq:
+                _row = _qd[_q]
+                _entries.append({
+                    "q":   _q,
+                    "eps": _row.get("EPS"),
+                    "gm":  _row.get("毛利率"),
+                    "op":  _row.get("營益率"),
+                })
+            _mth_qtr_map[_code] = _entries
+        monthly_qtr_json = json.dumps(_mth_qtr_map, ensure_ascii=False)
+
+        # 公告原文 map：code → {title, text}（供 detail panel 左欄使用）
+        _mth_text_map = {}
+        for _, _mr in df_monthly.iterrows():
+            _mc = str(_mr.get("股票代碼", "")).strip()
+            _title = str(_mr.get("主旨", "")).strip()
+            _txt   = str(_mr.get("原文", "")).strip()
+            if _mc and (_title or _txt):
+                _mth_text_map[_mc] = {"title": _title, "text": _txt}
+        monthly_text_json = json.dumps(_mth_text_map, ensure_ascii=False)
+
+        monthly_content = f"""<script>window.MONTHLY_QTR_DATA={monthly_qtr_json};window.MONTHLY_TEXT_DATA={monthly_text_json};</script>
+<div class="table-responsive">
           <table id="monthlyTable" class="table table-hover mb-0 w-100">
             <thead>
               <tr>
@@ -5363,6 +5661,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
     return HTML_TEMPLATE.format(
         updated=updated, rev_period=rev_period,
         rev_period_disp=rev_period_disp, rev_total=rev_total, rev_latest=rev_latest,
+        rev_today_badge=rev_today_badge,
         rev_rows=rev_rows,
         qtr_total=qtr_total, qtr_oper_avg=qtr_oper_avg,
         qtr_after_close=qtr_after_close,
@@ -5577,11 +5876,13 @@ def fetch_t05st02() -> tuple:
                    "減資基準日", "基準日"]                      # 排除減資/銷除基準日公告（非新買回計畫）
     MONTHLY_KW      = ["注意交易資訊", "股價異常",
                        "自結合併損益", "自結損益", "自結營業損益",
-                       "自結財務", "月份自結", "自結盈餘"]          # 月自結：注意交易 / 自結損益公告
-    MONTHLY_EXCLUDE = ["解除", "終止", "轉換公司債"]              # 排除解除注意/可轉債注意交易公告
+                       "自結財務", "月份自結", "自結盈餘",
+                       "自行結算"]                                  # 月自結：注意交易 / 自結損益公告
+    MONTHLY_EXCLUDE = ["解除", "終止", "轉換公司債", "更正"]       # 排除解除注意/可轉債/更正公告
     EVENT_KW        = ["法說會", "投資人說明會", "法人說明會"]     # 法說會公告
     EVENT_EXCLUDE   = ["取消", "延期", "停辦", "更正"]            # 排除取消/延期
     SPO_KW          = ["辦理現金增資", "現金增資"]                # 現增公告
+    SPO_REQUIRE     = ["辦理", "現金增資發行"]                     # 本公司辦理才需其一（排除「現金增資[外部公司名]」型投資公告）
     SPO_EXCLUDE     = ["更正", "補正", "認購情形", "實施情況", "辦理情形",
                        "增資作業已完成", "私募", "無償",           # 非新決議 / 私募 / 無償配股
                        "代子公司", "代孫公司", "代被投資", "子公司",  # 子/孫公司相關（代發公告、增資子公司）
@@ -5590,6 +5891,7 @@ def fetch_t05st02() -> tuple:
                        "收足股款",                                 # 增資款收足（已執行完畢，非新決議）
                        "暫停",                                     # 決議暫停現增（如 4764 雙鍵）
                        "撤銷",                                     # 撤銷現增（如 7610 聯友金屬）
+                       "撤回",                                     # 自行撤回現增（如 8916 光隆）
                        "展延",                                     # 申請展延（如 3028 增你強）
                        "補充公告",                                 # 後續補充公告（如 4977 眾達-KY）
                        "(修正",                                    # 修正舊決議（如 6834 天二科技）
@@ -5600,6 +5902,7 @@ def fetch_t05st02() -> tuple:
                        "放棄認購",                                 # 董事放棄認購（後續公告）
                        "股款催繳",                                 # 股款催繳通知（後續公告）
                        "通過認購",                                 # 認購他公司現增（非本公司辦理）
+                       "參與認購",                                 # 參與認購他公司現增（如 3413 京鼎）
                        "催繳期間屆滿",                             # 增資執行完畢（3540 曜越類）
                        "股票發放",                                 # 股票發放公告（執行完畢後續）
                        "調整現金增資",                             # 調整發行價格（後續變更）
@@ -5692,6 +5995,7 @@ def fetch_t05st02() -> tuple:
                           and not any(x in r["desc"] for x in TRS_EXCLUDE)]
             monthly02  = [r for r in rows02
                           if r.get("typek", "").strip() not in ("emg", "rotc")
+                          and not r.get("name", "").strip().endswith("-創")
                           and any(k in r["desc"] for k in MONTHLY_KW)
                           and not any(x in r["desc"] for x in MONTHLY_EXCLUDE)]
             event02    = [r for r in rows02
@@ -5701,6 +6005,7 @@ def fetch_t05st02() -> tuple:
             spo02      = [r for r in rows02
                           if r.get("typek", "").strip() not in ("emg", "rotc")
                           and any(k in r["desc"] for k in SPO_KW)
+                          and any(req in r["desc"] for req in SPO_REQUIRE)
                           and not any(x in r["desc"] for x in SPO_EXCLUDE)]
             print(f" 共 {len(rows02)} 列，季報 {len(seasonal02)} 筆，庫藏股 {len(treasury02)} 筆，月自結 {len(monthly02)} 筆，法說會 {len(event02)} 筆，現增 {len(spo02)} 筆")
 
@@ -5844,6 +6149,7 @@ def fetch_t05st02() -> tuple:
                                       and not any(x in r["desc"] for x in QTR_EXCLUDE))
                                      or
                                      (r.get("typek","").strip() not in ("emg","rotc")
+                                      and not r.get("name","").strip().endswith("-創")
                                       and any(k in r["desc"] for k in MONTHLY_KW)
                                       and not any(x in r["desc"] for x in MONTHLY_EXCLUDE))
                                      or
@@ -5858,6 +6164,7 @@ def fetch_t05st02() -> tuple:
                                      or
                                      (r.get("typek","").strip() not in ("emg","rotc")
                                       and any(k in r["desc"] for k in SPO_KW)
+                                      and any(req in r["desc"] for req in SPO_REQUIRE)
                                       and not any(x in r["desc"] for x in SPO_EXCLUDE))
                                  )]
                     if new_today:
@@ -5939,6 +6246,7 @@ def fetch_t05st02() -> tuple:
                                   and not any(x in r["desc"] for x in TRS_EXCLUDE)]
                     monthly01  = [r for r in rows01
                                   if r.get("typek", "").strip() not in ("emg", "rotc")
+                                  and not r.get("name", "").strip().endswith("-創")
                                   and any(k in r["desc"] for k in MONTHLY_KW)
                                   and not any(x in r["desc"] for x in MONTHLY_EXCLUDE)]
                     event01    = [r for r in rows01
@@ -5948,6 +6256,7 @@ def fetch_t05st02() -> tuple:
                     spo01      = [r for r in rows01
                                   if r.get("typek", "").strip() not in ("emg", "rotc")
                                   and any(k in r["desc"] for k in SPO_KW)
+                                  and any(req in r["desc"] for req in SPO_REQUIRE)
                                   and not any(x in r["desc"] for x in SPO_EXCLUDE)]
                     print(f" {total} 列，季報 {len(seasonal01)} 筆，庫藏股 {len(treasury01)} 筆，月自結 {len(monthly01)} 筆，法說會 {len(event01)} 筆，現增 {len(spo01)} 筆")
                     if seasonal01 or treasury01 or monthly01 or event01 or spo01:
@@ -5980,6 +6289,7 @@ def fetch_t05st02() -> tuple:
                      and not any(x in r["desc"] for x in TRS_EXCLUDE)]
     monthly_rows  = [r for r in all_rows
                      if r.get("typek", "").strip() not in ("emg", "rotc")
+                     and not r.get("name", "").strip().endswith("-創")
                      and any(k in r["desc"] for k in MONTHLY_KW)
                      and not any(x in r["desc"] for x in MONTHLY_EXCLUDE)]
     event_rows    = [r for r in all_rows
@@ -5989,6 +6299,7 @@ def fetch_t05st02() -> tuple:
     spo_rows      = [r for r in all_rows
                      if r.get("typek", "").strip() not in ("emg", "rotc")
                      and any(k in r["desc"] for k in SPO_KW)
+                     and any(req in r["desc"] for req in SPO_REQUIRE)
                      and not any(x in r["desc"] for x in SPO_EXCLUDE)]
     if spo_rows:
         print("    [現增] 匹配公告：")
@@ -6174,7 +6485,23 @@ def fetch_t05st02() -> tuple:
             if not d:
                 print(f"\n        [{code}] 月自結解析失敗 desc={p['desc'][:40]}")
                 print(f"               text前300={repr(text[:300])}")
+                _dbg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"_debug_monthly_{code}.txt")
+                try:
+                    with open(_dbg_path, "w", encoding="utf-8") as _f:
+                        _f.write(f"=== {code} FAILED desc={p['desc'][:80]} ===\n")
+                        _f.write(text)
+                except Exception:
+                    pass
                 continue
+            if d.get("EPS") is None:
+                _dbg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"_debug_monthly_{code}.txt")
+                try:
+                    with open(_dbg_path, "w", encoding="utf-8") as _f:
+                        _f.write(f"=== {code} desc={p['desc'][:80]} ===\n")
+                        _f.write(text)
+                    print(f"\n        [{code}] EPS=None，文字已存到 {_dbg_path}")
+                except Exception:
+                    pass
             monthly_result.append({
                 "市場":     "上市" if p["typek"].strip() == "sii" else "上櫃",
                 "股票代碼": code,
@@ -6186,6 +6513,8 @@ def fetch_t05st02() -> tuple:
                 "EPS":      d.get("EPS"),
                 "毛利率":   d.get("毛利率"),
                 "營益率":   d.get("營益率"),
+                "主旨":     p["desc"].strip(),
+                "原文":     _extract_mops_body(text)[:3000],
             })
         print(f" {len(monthly_result)} 筆有資料")
 
@@ -6448,6 +6777,7 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
     # 過濾：季度欄空白 → 無法確認是哪一季，一律排除
     # 財務欄全空時仍保留（合併財報格式可能解析失敗，但公告本身是有效季報）
     prev_full_lookup: dict = {}
+    _cqdata: dict = {}
     if df_qtr is not None and not df_qtr.empty:
         has_season = df_qtr.get("季度", pd.Series(dtype=str)).fillna("").str.strip() != ""
         not_skipped = ~df_qtr["股票代碼"].astype(str).str.strip().isin(QTR_SKIP_CODES)
@@ -6644,6 +6974,23 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         print(f"  月自結 prev：{filled}/{len(monthly_needed)} 家有 EPS（cache 更新）")
     print()
 
+    # ── 月自結：抓近4季歷史季報，補入 _cqdata（detail panel 用）──
+    if df_monthly is not None and not df_monthly.empty:
+        _monthly_codes = list(df_monthly["股票代碼"].astype(str).str.strip().unique())
+        _mth_hist = fetch_monthly_qtr_history(_monthly_codes, _prev_label)
+        for _mc, _mv in _mth_hist.items():
+            if _mc not in _cqdata:
+                _cqdata[_mc] = {}
+            for _qe in _mv.get("quarters", []):
+                _qk = _qe["q"]
+                if _qk not in _cqdata[_mc]:
+                    _cqdata[_mc][_qk] = {
+                        "季度": _qk,
+                        "EPS": _qe.get("eps"),
+                        "毛利率": _qe.get("gm"),
+                        "營益率": _qe.get("op"),
+                    }
+
     if not df_trs.empty:
         print(f"  庫藏股：{len(df_trs)} 筆（未反映 {df_trs['未反映'].sum()}）")
     print()
@@ -6697,7 +7044,8 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          df_spo=df_spo,
                          rev_hist_cache=_rev_hist,
                          prev_full_lookup=prev_full_lookup,
-                         rev_archive=_rev_archive)
+                         rev_archive=_rev_archive,
+                         qtr_history=_cqdata)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
 
@@ -6707,7 +7055,19 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         print("  瀏覽器頁面開著，由 meta refresh 自動重整")
     else:
         url = f"file:///{OUTPUT_FILE.replace(chr(92), '/')}"
-        webbrowser.open(url)
+        _chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
+        _opened = False
+        for _cp in _chrome_paths:
+            if os.path.exists(_cp):
+                import subprocess
+                subprocess.Popen([_cp, url])
+                _opened = True
+                break
+        if not _opened:
+            webbrowser.open(url)
         print(f"  開啟瀏覽器：{url}")
     return news_analysis, news_items
 
