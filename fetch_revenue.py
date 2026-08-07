@@ -2314,9 +2314,9 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
                 month = v
                 break
 
-    # ── 單月 EPS：優先用 HTML 表格解析 ──
-    # 找 "每股盈餘" 所在 <tr>，取該行第一個有效數值（= 月 EPS）
+    # ── 單月 EPS：優先用 HTML 表格解析（稅後 > 稅前 > 一般每股盈餘）──
     eps = None
+    eps_at_tbl = eps_bt_tbl = eps_gen_tbl = None
     rev_v = pretax_v = None
     if html:
         from bs4 import BeautifulSoup as _BS
@@ -2326,11 +2326,21 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
             if not cells:
                 continue
             label = cells[0].get_text(strip=True)
-            if ("每股盈餘" in label or "每股稅後純益" in label or "每股淨利" in label or ("每股" in label and "盈餘" in label)) and "稀釋" not in label and eps is None:
+            if "稀釋" in label:
+                continue
+            _is_per = "每股" in label and ("盈餘" in label or "純益" in label or "淨利" in label)
+            if _is_per:
+                _is_at = "稅後" in label
+                _is_bt = "稅前" in label and not _is_at
                 for c in cells[1:]:
                     v = _parse_num(c.get_text(strip=True))
                     if v is not None:
-                        eps = v
+                        if _is_at and eps_at_tbl is None:
+                            eps_at_tbl = v
+                        elif _is_bt and eps_bt_tbl is None:
+                            eps_bt_tbl = v
+                        elif not _is_at and not _is_bt and eps_gen_tbl is None:
+                            eps_gen_tbl = v
                         break
             elif "營業收入" in label and rev_v is None:
                 for c in cells[1:]:
@@ -2344,6 +2354,7 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
                     if v is not None:
                         pretax_v = v
                         break
+        eps = eps_at_tbl if eps_at_tbl is not None else (eps_bt_tbl if eps_bt_tbl is not None else eps_gen_tbl)
 
     # ── 「每股淨利」格式（金融業月自結常用）：稅後優先，再抓稅前 ──
     # 例：「5月份稅後淨利...每股淨利0.88元。」
@@ -2416,6 +2427,17 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
             nums = re.findall(r'-?[\d,]+\.?\d*', m_hdr.group(1))
             if nums:
                 eps = _parse_num(nums[-1])
+
+    # ── 遠東銀格式：每股稅後盈餘(元)  0.08  0.61（空格對齊純文字表格）──
+    # 行格式：「每股稅後盈餘(元)  月值  累計值」，取第一個數值（= 月值）
+    if eps is None:
+        m_tbl_at = re.search(r'每股稅後[^\d（(\n]{0,8}[（(]元[）)]\s+(-?[\d.]+)', text)
+        if m_tbl_at:
+            eps = _parse_num(m_tbl_at.group(1))
+    if eps is None:
+        m_tbl_bt = re.search(r'每股稅前[^\d（(\n]{0,8}[（(]元[）)]\s+(-?[\d.]+)', text)
+        if m_tbl_bt:
+            eps = _parse_num(m_tbl_bt.group(1))
 
     # ── 「每股稅後盈餘/每股稅後(損)益」冒號格式（稅後優先於稅前）──
     # 支援：每股稅後盈餘：0.78、每股稅後(損)益:-0.78、每股稅後純益：1.23
@@ -3991,8 +4013,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .qtr-detail-panel td:hover {{ background:transparent !important; }}
     .qtr-orig-text {{ margin-top:0; font-size:.78rem; color:var(--muted);
         white-space:pre-wrap; background:var(--bg); padding:.5rem .75rem;
-        border-radius:.3rem; max-height:220px; overflow-y:auto;
-        border:1px solid var(--border); line-height:1.5; }}
+        border-radius:.3rem; border:1px solid var(--border); line-height:1.5; }}
     #monthlyTable tbody tr.after-close td {{ background:var(--surface) !important; }}
     #monthlyTable tbody tr.after-close:hover td {{ background:var(--hover-row) !important; }}
     .sep-col {{ border-left:3px solid var(--accent) !important; background:#151a30 !important; color:var(--accent); font-weight:600; }}
@@ -5471,8 +5492,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         _mth_text_map = {}
         for _, _mr in df_monthly.iterrows():
             _mc = str(_mr.get("股票代碼", "")).strip()
-            _title = str(_mr.get("主旨", "")).strip()
-            _txt   = str(_mr.get("原文", "")).strip()
+            _raw_t = _mr.get("主旨"); _title = "" if pd.isna(_raw_t) else str(_raw_t).strip()
+            _raw_x = _mr.get("原文"); _txt   = "" if pd.isna(_raw_x) else str(_raw_x).strip()
             if _mc and (_title or _txt):
                 _mth_text_map[_mc] = {"title": _title, "text": _txt}
         monthly_text_json = json.dumps(_mth_text_map, ensure_ascii=False)
