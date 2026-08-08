@@ -3853,6 +3853,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.bootstrap5.min.css">
   <style>
     /* ── 深色主題 token ── */
     :root {{
@@ -4244,6 +4245,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+<script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
 
 <script>
 function switchTab(id, btn) {{
@@ -4251,16 +4253,34 @@ function switchTab(id, btn) {{
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + id).classList.add('active');
   btn.classList.add('active');
-  // 通知 DataTables 重算欄寬
-  if (id === 'rev' && $.fn.DataTable.isDataTable('#revTable')) $('#revTable').DataTable().columns.adjust();
-  if (id === 'qtr'     && $.fn.DataTable.isDataTable('#qtrTable'))     $('#qtrTable').DataTable().columns.adjust();
-  if (id === 'treasury'&& $.fn.DataTable.isDataTable('#trsTable'))     $('#trsTable').DataTable().columns.adjust();
-  if (id === 'monthly' && $.fn.DataTable.isDataTable('#monthlyTable')) $('#monthlyTable').DataTable().columns.adjust();
-  if (id === 'event'   && $.fn.DataTable.isDataTable('#eventTable'))   $('#eventTable').DataTable().columns.adjust();
-  if (id === 'etf' && $.fn.DataTable.isDataTable('#etfStockTable'))  $('#etfStockTable').DataTable().columns.adjust();
-  if (id === 'etf' && $.fn.DataTable.isDataTable('#etfChangeTable')) $('#etfChangeTable').DataTable().columns.adjust();
-  if (id === 'etf' && $.fn.DataTable.isDataTable('#etfFundTable'))   $('#etfFundTable').DataTable().columns.adjust();
-  if (id === 'spo' && $.fn.DataTable.isDataTable('#spoTable'))       $('#spoTable').DataTable().columns.adjust();
+  // 先把所有表格的 FixedHeader 停用，避免不同 tab 的表頭互相疊錯
+  var _all = ['#revTable','#qtrTable','#trsTable','#monthlyTable','#eventTable',
+              '#etfStockTable','#etfChangeTable','#etfFundTable','#spoTable'];
+  _all.forEach(function(s) {{
+    if ($.fn.DataTable.isDataTable(s)) {{
+      var _dt = $(s).DataTable();
+      if (_dt.fixedHeader) _dt.fixedHeader.disable();
+    }}
+  }});
+  // 重算欄寬 + 啟用當前 tab 的 FixedHeader
+  // setTimeout 讓瀏覽器先完成 display:block reflow，FixedHeader 才算得到正確座標
+  function _adj(sel) {{
+    if ($.fn.DataTable.isDataTable(sel)) {{
+      var dt = $(sel).DataTable();
+      dt.columns.adjust();
+      if (dt.fixedHeader) {{
+        dt.fixedHeader.enable();
+        setTimeout(function() {{ dt.fixedHeader.adjust(); }}, 50);
+      }}
+    }}
+  }}
+  if (id === 'rev')      {{ _adj('#revTable'); }}
+  if (id === 'qtr')      {{ _adj('#qtrTable'); }}
+  if (id === 'treasury') {{ _adj('#trsTable'); }}
+  if (id === 'monthly')  {{ _adj('#monthlyTable'); }}
+  if (id === 'event')    {{ _adj('#eventTable'); }}
+  if (id === 'etf')      {{ _adj('#etfStockTable'); _adj('#etfChangeTable'); _adj('#etfFundTable'); }}
+  if (id === 'spo')      {{ _adj('#spoTable'); }}
 }}
 
 $(document).ready(function() {{
@@ -4287,7 +4307,7 @@ $(document).ready(function() {{
     }});
   }}
   var revT = $('#revTable').DataTable({{
-    paging: false,
+    paging: false, fixedHeader: true,
     order: [[0,'asc'],[5,'desc']],   // 先依群組（今日/昨日），再依公布時間最新
     orderFixed: {{ pre: [[0,'asc']] }},
     language: {{ search:'搜尋：', info:'共 _TOTAL_ 筆', zeroRecords:'無資料' }},
@@ -4361,7 +4381,7 @@ $(document).ready(function() {{
     if ($.fn.DataTable.isDataTable('#revTable')) revT.destroy();
     $('#revTable tbody').html(html);
     revT = $('#revTable').DataTable({{
-      paging: false,
+      paging: false, fixedHeader: true,
       order: [[0,'asc'],[5,'desc']],
       orderFixed: {{ pre: [[0,'asc']] }},
       language: {{ search:'搜尋：', info:'共 _TOTAL_ 筆', zeroRecords:'無資料' }},
@@ -4537,7 +4557,7 @@ $(document).ready(function() {{
       }});
     }}
     var qtrT = $('#qtrTable').DataTable({{
-      paging: false,
+      paging: false, fixedHeader: true,
       order: [[4,'desc']],
       orderFixed: {{ pre: [[0,'asc']] }},
       columnDefs: [{{ targets:0, visible:false, searchable:false }}],
@@ -4572,7 +4592,7 @@ $(document).ready(function() {{
       if ($.fn.DataTable.isDataTable('#qtrTable')) qtrT.destroy();
       $('#qtrTable tbody').html(html);
       qtrT = $('#qtrTable').DataTable({{
-        paging: false,
+        paging: false, fixedHeader: true,
         order: [[4,'desc']],
         orderFixed: {{ pre: [[0,'asc']] }},
         columnDefs: [{{ targets:0, visible:false, searchable:false }}],
@@ -4680,7 +4700,7 @@ $(document).ready(function() {{
   // ── 庫藏股表 ──
   if($('#trsTable').length) {{
     var trsT = $('#trsTable').DataTable({{
-      paging: false,
+      paging: false, fixedHeader: true,
       order: [[0,'asc'],[4,'desc']],
       columnDefs: [
         {{ targets:0, visible:false, searchable:false }},
@@ -4717,7 +4737,7 @@ $(document).ready(function() {{
   // ── 事件表 ──
   if($('#eventTable').length) {{
     var evtT = $('#eventTable').DataTable({{
-      paging: false,
+      paging: false, fixedHeader: true,
       order: [[0,'asc']],
       language: {{ search:'搜尋：', lengthMenu:'每頁 _MENU_ 筆', info:'第 _START_-_END_ 筆，共 _TOTAL_ 筆',
         paginate:{{first:'首頁',last:'末頁',next:'下頁',previous:'上頁'}}, zeroRecords:'無資料' }},
@@ -4729,7 +4749,7 @@ $(document).ready(function() {{
   // ── 月自結表 ──
   if($('#monthlyTable').length) {{
     var mthT = $('#monthlyTable').DataTable({{
-      paging: false,
+      paging: false, fixedHeader: true,
       order: [[4,'desc']],
       orderFixed: {{ pre: [[0,'asc']] }},
       columnDefs: [{{ targets:0, visible:false, searchable:false }}],
@@ -4849,7 +4869,7 @@ $(document).ready(function() {{
 
   if($('#etfStockTable').length) {{
     var dtStock = $('#etfStockTable').DataTable({{
-      paging: false,
+      paging: false, fixedHeader: true,
       order: [[1,'desc']],
       autoWidth: false,
       language: {{ search:'搜尋：', info:'共 _TOTAL_ 筆', zeroRecords:'無資料' }},
@@ -4869,7 +4889,7 @@ $(document).ready(function() {{
   // ── ETF 各基金買賣概況（8欄）──
   if($('#etfFundTable').length) {{
     var dtFund = $('#etfFundTable').DataTable({{
-      paging: false,
+      paging: false, fixedHeader: true,
       order: [[1,'desc']],
       autoWidth: false,
       language: {{ search:'搜尋：', info:'共 _TOTAL_ 筆', zeroRecords:'無資料' }},
@@ -4913,7 +4933,7 @@ $(document).ready(function() {{
     }});
 
     var dtChange = $('#etfChangeTable').DataTable({{
-      paging: false,
+      paging: false, fixedHeader: true,
       order: [[5,'desc']],
       autoWidth: false,
       language: {{ search:'搜尋：', info:'共 _TOTAL_ 筆', zeroRecords:'首日資料，無前日可比對' }},
@@ -4931,12 +4951,22 @@ $(document).ready(function() {{
   // ── 現增表 ──
   if($('#spoTable').length) {{
     $('#spoTable').DataTable({{
-      paging: false,
+      paging: false, fixedHeader: true,
       order: [[3,'desc']],
       language: {{ search:'搜尋：', lengthMenu:'每頁 _MENU_ 筆', info:'第 _START_-_END_ 筆，共 _TOTAL_ 筆',
                    zeroRecords:'暫無現增公告', paginate:{{ first:'«',last:'»',next:'>',previous:'<' }} }},
     }});
   }}
+
+  // 初始化完畢：停用非預設 tab 的 FixedHeader（預設 tab 為 rev）
+  var _nonDefault = ['#qtrTable','#trsTable','#monthlyTable','#eventTable',
+                     '#etfStockTable','#etfChangeTable','#etfFundTable','#spoTable'];
+  _nonDefault.forEach(function(s) {{
+    if ($.fn.DataTable.isDataTable(s)) {{
+      var _dt = $(s).DataTable();
+      if (_dt.fixedHeader) _dt.fixedHeader.disable();
+    }}
+  }});
 }});
 
 // ─── ETF 篩選全域狀態 ──────────────────────────────────────────────────
@@ -7094,17 +7124,23 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
 
 
 INTERVAL_MIN = 10           # 一般資料更新間隔（分鐘）
-NEWS_HOURS   = (8, 21)      # 新聞整理時段（早上8點、晚上9點）
+NEWS_HOURS   = (8, 21)      # 新聞整理時段（台灣時間：早上8點、晚上9點）
 NEWS_DEBOUNCE_MIN = 50      # 同一時段內只抓一次（50分鐘內不重複）
+
+def _tw_now() -> "datetime":
+    """回傳台灣時間（UTC+8）的 naive datetime，本機/雲端行為一致。"""
+    from datetime import timezone, timedelta as _td
+    return datetime.now(timezone.utc).replace(tzinfo=None) + _td(hours=8)
 
 def _news_due(last_fetch: "datetime | None") -> bool:
     """判斷是否應該更新新聞：
     - 第一次啟動永遠抓（確保啟動時有內容）
-    - 之後只在 NEWS_HOURS 指定的整點鐘頭，且距上次已超過 NEWS_DEBOUNCE_MIN 分鐘才抓
+    - 之後只在 NEWS_HOURS 指定的台灣時間整點鐘頭，且距上次已超過 NEWS_DEBOUNCE_MIN 分鐘才抓
+    - last_fetch 必須也是台灣時間（_tw_now() 寫入）
     """
     if last_fetch is None:
         return True
-    now = datetime.now()
+    now = _tw_now()
     elapsed_min = (now - last_fetch).total_seconds() / 60
     if elapsed_min < NEWS_DEBOUNCE_MIN:
         return False
@@ -7131,14 +7167,15 @@ if __name__ == "__main__":
         print(f"  第 {run} 次執行  {now.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*50}\n")
 
-        # 判斷是否需要更新新聞
+        # 判斷是否需要更新新聞（以台灣時間為準）
         news_due = _news_due(last_news_fetch)
         if news_due:
             pass_news = None                      # 讓 main() 自行抓取
-            fetch_ts  = datetime.now()            # 本次抓取時間戳
+            fetch_ts  = _tw_now()                 # 本次抓取時間戳（台灣時間）
         else:
             # 顯示下次更新預計時段
-            next_hour = next((h for h in sorted(NEWS_HOURS) if h > now.hour), NEWS_HOURS[0])
+            _tw_hour = _tw_now().hour
+            next_hour = next((h for h in sorted(NEWS_HOURS) if h > _tw_hour), NEWS_HOURS[0])
             print(f"  📰 新聞快取中（下次更新：{next_hour:02d}:00 前後）")
             pass_news = cached_news               # 傳入快取，跳過 Groq
             fetch_ts  = last_news_fetch           # 沿用上次實際抓取時間
