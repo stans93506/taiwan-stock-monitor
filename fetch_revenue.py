@@ -5715,9 +5715,10 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                 shares_disp = _fmt_shares(shares_s)
             rec_date  = r.get("認股基準日", "") or "-"
             payout_d  = r.get("撥券日", "") or "-"
+            badge = "badge-sii" if market == "上市" else "badge-otc"
             spo_rows_html.append(
                 f'<tr style="cursor:pointer" data-code="{code}" data-name="{name}">'
-                f"<td>{market}</td>"
+                f'<td><span class="badge {badge}">{market}</span></td>'
                 f"<td>{code}</td>"
                 f"<td>{name}</td>"
                 f"<td>{ann_d}</td>"
@@ -5845,8 +5846,8 @@ def _parse_spo_detail(text: str) -> dict:
     # ── 增資股數：優先取原股東認購部分 ──
     shares = None
 
-    # 第11條格式：「計 25,600,000 股由原股東」
-    m = re.search(r"計\s*([\d,]+)\s*股由原股東", text)
+    # 第11條格式：「計 25,600,000 股由原股東」或「計18,000,000股，由原股東」
+    m = re.search(r"計\s*([\d,]+)\s*股[，,]?\s*由原股東", text)
     if m:
         try:
             shares = int(m.group(1).replace(",", ""))
