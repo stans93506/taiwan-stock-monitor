@@ -12,3 +12,5 @@ debug.py
 # 本機 HTML（Actions 會自己產生）
 台股監測.html
 index.html
+
+launch.bat
