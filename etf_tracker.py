@@ -1203,12 +1203,17 @@ def run_all(force_fetch: bool = False) -> dict[str, dict]:
             "changes":   changes,
         }
 
-    # 抓取所有持股當日漲跌幅
+    # 抓取所有持股當日漲跌幅（含已移除的股票，才能算變動估金額）
     if results:
         all_codes = list({
             h["code"]
             for res in results.values()
             for h in res["today"]["holdings"]
+        } | {
+            c["code"]
+            for res in results.values()
+            for c in res.get("changes", [])
+            if c.get("is_removed")
         })
         results["_stock_data"] = fetch_stock_data(all_codes)
 
