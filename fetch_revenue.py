@@ -3160,7 +3160,8 @@ _NEWS_USER = """以下是今日（{date}）財經新聞標題，請整理成每�
 {news_list}
 """
 
-def _groq_post(messages: list, temperature=0.4, timeout=60) -> str:
+def _groq_post(messages: list, temperature=0.4, timeout=60,
+               model: str = "llama-3.3-70b-versatile") -> str:
     """
     呼叫 Groq API，回傳回應文字。
     遇到 429（rate limit）時：
@@ -3172,7 +3173,7 @@ def _groq_post(messages: list, temperature=0.4, timeout=60) -> str:
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}",
                      "Content-Type": "application/json"},
-            json={"model": "llama-3.3-70b-versatile",
+            json={"model": model,
                   "messages": messages,
                   "temperature": temperature},
             timeout=timeout,
@@ -3225,7 +3226,8 @@ def _score_news(all_news: list) -> dict:
 {news_text}"""
     try:
         print(f"  → Groq 評分（{len(all_news)} 則）...", end="", flush=True)
-        raw = _groq_post([{"role": "user", "content": prompt}], temperature=0.1)
+        raw = _groq_post([{"role": "user", "content": prompt}], temperature=0.1,
+                         model="llama-3.1-8b-instant")
         # 擷取 JSON
         m = re.search(r'\{.*\}', raw, re.DOTALL)
         if m:
@@ -3318,7 +3320,8 @@ def fetch_daily_news_analysis() -> tuple:
         print(f" 失敗: {e}")
         analysis_md = f"⚠️ Groq API 呼叫失敗：{e}"
 
-    # 2. 新聞重要性評分
+    # 2. 新聞重要性評分（稍作停頓，避免 Groq TPM rate limit）
+    time.sleep(2)
     scores = _score_news(all_news)
     for i, item in enumerate(all_news):
         item["score"] = scores.get(i + 1, None)
