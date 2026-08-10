@@ -4971,6 +4971,7 @@ $(document).ready(function() {{
       order: [[3,'desc']],
       language: {{ search:'搜尋：', lengthMenu:'每頁 _MENU_ 筆', info:'第 _START_-_END_ 筆，共 _TOTAL_ 筆',
                    zeroRecords:'暫無現增公告', paginate:{{ first:'«',last:'»',next:'>',previous:'<' }} }},
+      columnDefs: [{{ targets: 0, orderable: false }}],
     }});
     $('#spoTable tbody').on('click', 'tr[data-code]', function() {{
       var $tr   = $(this);
