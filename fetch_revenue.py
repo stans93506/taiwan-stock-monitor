@@ -1498,12 +1498,17 @@ def save_spo_cache(df_all: pd.DataFrame, existing: list) -> None:
             if _missing(er.get("增資股數")) and not _missing(nr.get("增資股數")):
                 er["增資股數"] = nr["增資股數"]
                 updated.append(f"增資股數→{nr['增資股數']}")
+            if _missing(er.get("增資上限股數")) and not _missing(nr.get("增資上限股數")):
+                er["增資上限股數"] = nr["增資上限股數"]
+                updated.append(f"增資上限股數→{nr['增資上限股數']}")
             if not er.get("認股基準日") and nr.get("認股基準日"):
                 er["認股基準日"] = nr["認股基準日"]
                 updated.append(f"認股基準日→{nr['認股基準日']}")
             if not er.get("撥券日") and nr.get("撥券日"):
                 er["撥券日"] = nr["撥券日"]
                 updated.append(f"撥券日→{nr['撥券日']}")
+            if not er.get("公告原文") and nr.get("公告原文"):
+                er["公告原文"] = nr["公告原文"]
             if updated:
                 print(f"  [SPO更新] {k} {er.get('公司名稱', '')}: {', '.join(updated)}")
         else:
@@ -5100,6 +5105,27 @@ function clearEtfStockFilter() {{
   $('#etfStockCount').text('共 ' + total + ' 檔');
 }}
 
+var _spoOpenCode = null;
+function toggleSpoDetail(code, tr) {{
+  var panel = document.getElementById('spoDetailPanel');
+  if (_spoOpenCode === code) {{
+    panel.style.display = 'none';
+    _spoOpenCode = null;
+    return;
+  }}
+  _spoOpenCode = code;
+  var txt = (typeof _spoTexts !== 'undefined') ? (_spoTexts[code] || '') : '';
+  var name = tr ? tr.cells[2].textContent : code;
+  document.getElementById('spoDetailTitle').textContent = code + ' ' + name + ' 公告原文';
+  document.getElementById('spoDetailText').textContent = txt || '（無公告原文）';
+  panel.style.display = 'block';
+  panel.scrollIntoView({{behavior:'smooth', block:'start'}});
+}}
+function closeSpoDetail() {{
+  document.getElementById('spoDetailPanel').style.display = 'none';
+  _spoOpenCode = null;
+}}
+
 function toggleEtfChangedOnly() {{
   if (!$.fn.DataTable.isDataTable('#etfChangeTable')) return;
   _etfChangedOnly = !_etfChangedOnly;
@@ -5635,38 +5661,71 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             except Exception:
                 return str(s)
 
+        def _esc(s):
+            return str(s).replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+
+        # 公告原文 JS map: code → text（同一代號取最新）
+        spo_text_map: dict = {}
+        for _, r in df_spo.sort_values("_排序鍵", ascending=False).iterrows():
+            code = r.get("股票代碼", "")
+            txt  = r.get("公告原文", "") or ""
+            if code and txt and code not in spo_text_map:
+                spo_text_map[code] = txt
+
         spo_rows_html = []
         for _, r in df_spo.sort_values("_排序鍵", ascending=False).iterrows():
             market    = r.get("市場", "")
             code      = r.get("股票代碼", "")
             name      = r.get("公司名稱", "")
             ann_d     = _fmt_date7(r.get("公告日期", ""))
-            shares    = _fmt_shares(r.get("增資股數"))
+            max_s     = r.get("增資上限股數")
+            shares_s  = r.get("增資股數")
+            # 優先顯示上限，加「上限」標籤；否則顯示原股東認購張數
+            if max_s is not None and not (isinstance(max_s, float) and pd.isna(max_s)):
+                try:
+                    lots = int(max_s) // 1000
+                    shares_disp = f'{lots:,} 張<br><small class="text-muted">（上限）</small>'
+                except Exception:
+                    shares_disp = _fmt_shares(shares_s)
+            else:
+                shares_disp = _fmt_shares(shares_s)
             rec_date  = r.get("認股基準日", "") or "-"
             payout_d  = r.get("撥券日", "") or "-"
+            has_text  = "1" if spo_text_map.get(code) else "0"
             spo_rows_html.append(
-                f"<tr>"
+                f'<tr style="cursor:pointer" onclick="toggleSpoDetail(\'{code}\',this)" data-has-text="{has_text}">'
                 f"<td>{market}</td>"
                 f"<td>{code}</td>"
                 f"<td>{name}</td>"
                 f"<td>{ann_d}</td>"
-                f"<td>{shares}</td>"
+                f"<td>{shares_disp}</td>"
                 f"<td>{rec_date}</td>"
                 f"<td>{payout_d}</td>"
                 f"</tr>"
             )
         spo_count = len(spo_rows_html)
+        spo_text_js = json.dumps(spo_text_map, ensure_ascii=False)
         spo_content = (
+            f'<script>var _spoTexts = {spo_text_js};</script>'
             '<div class="table-responsive">'
             '<table id="spoTable" class="table table-hover mb-0 w-100">'
             "<thead><tr>"
             "<th>市場</th><th>代號</th><th>名稱</th>"
-            '<th>公告日</th><th title="原股東認購張數（股數÷1000）">增資張數</th>'
+            '<th>公告日</th><th title="上限為全案發行上限；若無上限則顯示原股東認購張數">增資張數</th>'
             "<th>認股基準日</th>"
             '<th title="新股上市/掛牌日（來源：TWSE 公開申購公告 或 MOPS 公告文字）">撥券日</th>'
             "</tr></thead>"
             f"<tbody>{''.join(spo_rows_html)}</tbody>"
             "</table></div>"
+            '<div id="spoDetailPanel" style="display:none;margin-top:1rem;padding:1rem;'
+            'background:var(--bs-body-bg);border:1px solid var(--bs-border-color);border-radius:.5rem">'
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">'
+            '<strong id="spoDetailTitle"></strong>'
+            '<button class="btn btn-sm btn-outline-secondary" onclick="closeSpoDetail()">✕ 關閉</button>'
+            '</div>'
+            '<pre id="spoDetailText" style="white-space:pre-wrap;font-size:.8rem;max-height:400px;overflow-y:auto;'
+            'background:transparent;border:none;padding:0;margin:0"></pre>'
+            '</div>'
         )
 
     # ── 封存月下拉 ──
@@ -5747,11 +5806,28 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
 def _parse_spo_detail(text: str) -> dict:
     """
     解析現金增資公告文字（第11款格式）。
-    回傳 {增資股數(int|None), 認股基準日(str), 撥券日(str)}
+    回傳 {增資股數(int|None), 增資上限股數(int|None), 認股基準日(str), 撥券日(str)}
+    - 增資上限股數：全案上限發行股數（「上限為X,XXX仟股」）
     - 增資股數：優先取「原股東認購」股數（計N股由原股東），fallback 到發行總股數
     - 認股基準日：現金增資認股基準日（第16條）
     - 撥券日：新股上市/掛牌日（公告有時會列出，否則留空由 TWSE API 補）
     """
+    # ── 增資上限股數：「上限為X,XXX仟股」或「上限為X,XXX,XXX股」 ──
+    max_shares = None
+    for _pat, _mul in [
+        (r"上限為\s*([\d,]+)\s*仟股", 1000),
+        (r"上限為\s*([\d,]+)\s*股",   1),
+        (r"上限\s*([\d,]+)\s*仟股",   1000),
+        (r"上限\s*([\d,]+)\s*股",     1),
+    ]:
+        _m = re.search(_pat, text)
+        if _m:
+            try:
+                max_shares = int(_m.group(1).replace(",", "")) * _mul
+            except Exception:
+                pass
+            break
+
     # ── 增資股數：優先取原股東認購部分 ──
     shares = None
 
@@ -5818,7 +5894,7 @@ def _parse_spo_detail(text: str) -> dict:
             payout_date = m.group(1)
             break
 
-    return {"增資股數": shares, "認股基準日": record_date, "撥券日": payout_date}
+    return {"增資股數": shares, "增資上限股數": max_shares, "認股基準日": record_date, "撥券日": payout_date}
 
 
 def _parse_treasury_detail(text: str) -> dict:
@@ -6660,16 +6736,18 @@ def fetch_t05st02() -> tuple:
             detail = _parse_spo_detail(text) if text else {}
 
             spo_result.append({
-                "市場":      market,
-                "股票代碼":  code,
-                "公司名稱":  p["name"].replace("\xa0", "").strip(),
-                "公告日期":  date_s,   # YYYMMDD
-                "公告時間":  time_s,
-                "增資股數":  detail.get("增資股數"),
-                "認股基準日": detail.get("認股基準日", ""),
-                "撥券日":    detail.get("撥券日", ""),
-                "_排序鍵":   (date_s + time_s.zfill(6)).zfill(13),
-                "未反映":    False,    # 現增為長期事件，不標記未反映
+                "市場":        market,
+                "股票代碼":    code,
+                "公司名稱":    p["name"].replace("\xa0", "").strip(),
+                "公告日期":    date_s,   # YYYMMDD
+                "公告時間":    time_s,
+                "增資股數":    detail.get("增資股數"),
+                "增資上限股數": detail.get("增資上限股數"),
+                "認股基準日":  detail.get("認股基準日", ""),
+                "撥券日":      detail.get("撥券日", ""),
+                "公告原文":    _extract_mops_body(text)[:4000] if text else "",
+                "_排序鍵":     (date_s + time_s.zfill(6)).zfill(13),
+                "未反映":      False,
             })
         print(f" {len(spo_result)} 筆")
 
