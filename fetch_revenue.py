@@ -4955,11 +4955,28 @@ $(document).ready(function() {{
 
   // ── 現增表 ──
   if($('#spoTable').length) {{
+    var _spoColCount = $('#spoTable thead tr th').length;
     $('#spoTable').DataTable({{
       paging: false, fixedHeader: true,
       order: [[3,'desc']],
       language: {{ search:'搜尋：', lengthMenu:'每頁 _MENU_ 筆', info:'第 _START_-_END_ 筆，共 _TOTAL_ 筆',
                    zeroRecords:'暫無現增公告', paginate:{{ first:'«',last:'»',next:'>',previous:'<' }} }},
+    }});
+    $('#spoTable tbody').on('click', 'tr[data-code]', function() {{
+      var $tr   = $(this);
+      var code  = String($tr.data('code'));
+      var name  = String($tr.data('name') || '');
+      var $next = $tr.next('.qtr-detail-panel');
+      if ($next.length) {{ $next.remove(); $tr.removeClass('detail-open'); return; }}
+      $('.qtr-detail-panel', '#spoTable').remove();
+      $('tr[data-code]', '#spoTable').removeClass('detail-open');
+      var txt = (typeof _spoTexts !== 'undefined' && _spoTexts[code]) ? _spoTexts[code] : '（無公告原文）';
+      var inner = '<div class="qtr-detail-title">' + code + '&nbsp;' + name + '&nbsp;公告原文</div>'
+        + '<pre style="white-space:pre-wrap;font-size:.8rem;max-height:420px;overflow-y:auto;'
+        + 'background:transparent;border:none;padding:0;margin:0;color:var(--text)">' + $('<div>').text(txt).html() + '</pre>';
+      var html = '<tr class="qtr-detail-panel"><td colspan="' + _spoColCount + '" style="padding:0">'
+        + '<div class="qtr-detail-inner">' + inner + '</div></td></tr>';
+      $tr.after(html); $tr.addClass('detail-open');
     }});
   }}
 
@@ -5103,27 +5120,6 @@ function clearEtfStockFilter() {{
   var total = $.fn.DataTable.isDataTable('#etfStockTable')
     ? $('#etfStockTable').DataTable().rows().count() : '';
   $('#etfStockCount').text('共 ' + total + ' 檔');
-}}
-
-var _spoOpenCode = null;
-function toggleSpoDetail(code, tr) {{
-  var panel = document.getElementById('spoDetailPanel');
-  if (_spoOpenCode === code) {{
-    panel.style.display = 'none';
-    _spoOpenCode = null;
-    return;
-  }}
-  _spoOpenCode = code;
-  var txt = (typeof _spoTexts !== 'undefined') ? (_spoTexts[code] || '') : '';
-  var name = tr ? tr.cells[2].textContent : code;
-  document.getElementById('spoDetailTitle').textContent = code + ' ' + name + ' 公告原文';
-  document.getElementById('spoDetailText').textContent = txt || '（無公告原文）';
-  panel.style.display = 'block';
-  panel.scrollIntoView({{behavior:'smooth', block:'start'}});
-}}
-function closeSpoDetail() {{
-  document.getElementById('spoDetailPanel').style.display = 'none';
-  _spoOpenCode = null;
 }}
 
 function toggleEtfChangedOnly() {{
@@ -5661,10 +5657,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             except Exception:
                 return str(s)
 
-        def _esc(s):
-            return str(s).replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-
-        # 公告原文 JS map: code → text（同一代號取最新）
+        # 公告原文 JS map: code → text
         spo_text_map: dict = {}
         for _, r in df_spo.sort_values("_排序鍵", ascending=False).iterrows():
             code = r.get("股票代碼", "")
@@ -5680,7 +5673,6 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             ann_d     = _fmt_date7(r.get("公告日期", ""))
             max_s     = r.get("增資上限股數")
             shares_s  = r.get("增資股數")
-            # 優先顯示上限，加「上限」標籤；否則顯示原股東認購張數
             if max_s is not None and not (isinstance(max_s, float) and pd.isna(max_s)):
                 try:
                     lots = int(max_s) // 1000
@@ -5691,9 +5683,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                 shares_disp = _fmt_shares(shares_s)
             rec_date  = r.get("認股基準日", "") or "-"
             payout_d  = r.get("撥券日", "") or "-"
-            has_text  = "1" if spo_text_map.get(code) else "0"
             spo_rows_html.append(
-                f'<tr style="cursor:pointer" onclick="toggleSpoDetail(\'{code}\',this)" data-has-text="{has_text}">'
+                f'<tr style="cursor:pointer" data-code="{code}" data-name="{name}">'
                 f"<td>{market}</td>"
                 f"<td>{code}</td>"
                 f"<td>{name}</td>"
@@ -5717,15 +5708,6 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             "</tr></thead>"
             f"<tbody>{''.join(spo_rows_html)}</tbody>"
             "</table></div>"
-            '<div id="spoDetailPanel" style="display:none;margin-top:1rem;padding:1rem;'
-            'background:var(--bs-body-bg);border:1px solid var(--bs-border-color);border-radius:.5rem">'
-            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">'
-            '<strong id="spoDetailTitle"></strong>'
-            '<button class="btn btn-sm btn-outline-secondary" onclick="closeSpoDetail()">✕ 關閉</button>'
-            '</div>'
-            '<pre id="spoDetailText" style="white-space:pre-wrap;font-size:.8rem;max-height:400px;overflow-y:auto;'
-            'background:transparent;border:none;padding:0;margin:0"></pre>'
-            '</div>'
         )
 
     # ── 封存月下拉 ──
