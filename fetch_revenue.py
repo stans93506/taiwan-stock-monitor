@@ -2986,13 +2986,8 @@ def build_treasury_row(row):
     ann_d = str(row.get("公告日期", "")).zfill(7)
     ann_t = str(row.get("公告時間", "")).zfill(6)
     ann_disp = f"{ann_d[3:5]}/{ann_d[5:7]} {ann_t[:2]}:{ann_t[2:4]}" if len(ann_d) >= 7 else ""
-    status = row.get("狀態", "")
     if after:
         ann_disp = f"<span class='badge-unreact'>未反映</span> {ann_disp}"
-    elif status == "未開始":
-        ann_disp = (f"<span style='background:#555;color:#ccc;font-size:0.7rem;"
-                    f"padding:1px 5px;border-radius:4px;vertical-align:middle;"
-                    f"margin-right:4px'>尚未開始</span>{ann_disp}")
 
     group = "0" if after else "1"
     return (
@@ -4176,8 +4171,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
       <div class="col-6 col-md-3">
         <div class="card stat-card">
-          <div class="num" style="color:#fb8c00">{trs_pending}</div>
-          <div class="lbl">尚未開始</div>
+          <div class="num" style="color:#888">{trs_done}</div>
+          <div class="lbl">完成</div>
         </div>
       </div>
       <div class="col-6 col-md-3">
