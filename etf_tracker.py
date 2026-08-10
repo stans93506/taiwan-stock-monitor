@@ -1135,12 +1135,32 @@ def fetch_stock_data(codes: list[str]) -> dict[str, dict]:
 
 # ── 主執行：抓取所有 ETF ──────────────────────────────────────────────
 
+def _cleanup_old_snapshots(keep_days: int = 30) -> None:
+    """刪除 etf_data/ 裡超過 keep_days 天的快照檔（以檔名日期判斷）"""
+    cutoff = datetime.today() - timedelta(days=keep_days)
+    cutoff_str = f"{cutoff.year - 1911}{cutoff.month:02d}{cutoff.day:02d}"
+    removed = 0
+    for p in DATA_DIR.glob("*.json"):
+        # 檔名格式：00981A_1150724.json → 取底線後的數字部分
+        stem = p.stem  # e.g. "00981A_1150724"
+        parts = stem.rsplit("_", 1)
+        if len(parts) != 2:
+            continue
+        date_part = parts[1]  # e.g. "1150724"
+        if len(date_part) == 7 and date_part.isdigit() and date_part < cutoff_str:
+            p.unlink()
+            removed += 1
+    if removed:
+        print(f"  [ETF] 清理舊快照：刪除 {removed} 個超過 {keep_days} 天的檔案")
+
+
 def run_all(force_fetch: bool = False) -> dict[str, dict]:
     """
     抓取所有設定 ETF，存快照，計算變動。
     force_fetch=True 可跳過快取強制重抓。
     回傳 {etf_code: {today, yesterday, changes}, "_price_changes": {...}}
     """
+    _cleanup_old_snapshots(keep_days=30)
     results = {}
     for code, cfg in ETF_CONFIG.items():
         name   = cfg["name"]
