@@ -1735,7 +1735,7 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     <small class='text-muted'>{holdings_n} 持股</small>
   </td>
   <td data-order='{nav}'>{_fmt_val(nav) if nav else "-"}</td>
-  <td data-order='{date_str}'>{date_str}{"<br><small class='text-muted'>與" + prev_date + "比較</small>" if prev_date else ""}</td>
+  <td data-order='{date_str}'>{date_str}{"<br><small class='text-muted'>（前次：" + prev_date + "）</small>" if prev_date else ""}</td>
   <td><a href='{fund_url}' target='_blank' onclick="event.stopPropagation()" class='btn btn-outline-secondary btn-sm py-0'>官方頁</a></td>
 </tr>"""
 
