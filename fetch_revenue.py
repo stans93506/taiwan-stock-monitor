@@ -1510,14 +1510,19 @@ def save_spo_cache(df_all: pd.DataFrame, existing: list) -> None:
             # 舊格式 backward compat：公告原文 → 公告列表
             if er.get("公告原文") and not er.get("公告列表"):
                 er["公告列表"] = [{"日期": er.get("公告日期", ""), "原文": er.pop("公告原文")}]
-            # 合併新公告（以日期去重，保留最多 5 篇）
+            # 合併新公告（以正規化日期去重，保留最多 5 篇）
+            def _norm_date(d: str) -> str:
+                d = str(d).strip()
+                if len(d) == 7 and d.isdigit():
+                    return f"{d[:3]}/{d[3:5]}/{d[5:7]}"
+                return d
             nr_anns = nr.get("公告列表") or []
             er_anns = er.get("公告列表") or []
-            existing_dates = {a.get("日期") for a in er_anns}
+            existing_dates = {_norm_date(a.get("日期", "")) for a in er_anns}
             for ann in nr_anns:
-                if ann.get("日期") not in existing_dates and ann.get("原文"):
+                if _norm_date(ann.get("日期", "")) not in existing_dates and ann.get("原文"):
                     er_anns.append(ann)
-                    existing_dates.add(ann.get("日期"))
+                    existing_dates.add(_norm_date(ann.get("日期", "")))
             er["公告列表"] = er_anns[-5:]  # 最多保留 5 篇
             if updated:
                 print(f"  [SPO更新] {k} {er.get('公司名稱', '')}: {', '.join(updated)}")
