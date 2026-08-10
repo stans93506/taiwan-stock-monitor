@@ -1507,8 +1507,18 @@ def save_spo_cache(df_all: pd.DataFrame, existing: list) -> None:
             if not er.get("撥券日") and nr.get("撥券日"):
                 er["撥券日"] = nr["撥券日"]
                 updated.append(f"撥券日→{nr['撥券日']}")
-            if not er.get("公告原文") and nr.get("公告原文"):
-                er["公告原文"] = nr["公告原文"]
+            # 舊格式 backward compat：公告原文 → 公告列表
+            if er.get("公告原文") and not er.get("公告列表"):
+                er["公告列表"] = [{"日期": er.get("公告日期", ""), "原文": er.pop("公告原文")}]
+            # 合併新公告（以日期去重，保留最多 5 篇）
+            nr_anns = nr.get("公告列表") or []
+            er_anns = er.get("公告列表") or []
+            existing_dates = {a.get("日期") for a in er_anns}
+            for ann in nr_anns:
+                if ann.get("日期") not in existing_dates and ann.get("原文"):
+                    er_anns.append(ann)
+                    existing_dates.add(ann.get("日期"))
+            er["公告列表"] = er_anns[-5:]  # 最多保留 5 篇
             if updated:
                 print(f"  [SPO更新] {k} {er.get('公司名稱', '')}: {', '.join(updated)}")
         else:
@@ -4970,10 +4980,25 @@ $(document).ready(function() {{
       if ($next.length) {{ $next.remove(); $tr.removeClass('detail-open'); return; }}
       $('.qtr-detail-panel', '#spoTable').remove();
       $('tr[data-code]', '#spoTable').removeClass('detail-open');
-      var txt = (typeof _spoTexts !== 'undefined' && _spoTexts[code]) ? _spoTexts[code] : '（無公告原文）';
-      var inner = '<div class="qtr-detail-title">' + code + '&nbsp;' + name + '&nbsp;公告原文</div>'
-        + '<pre style="white-space:pre-wrap;font-size:.8rem;max-height:420px;overflow-y:auto;'
-        + 'background:transparent;border:none;padding:0;margin:0;color:var(--text)">' + $('<div>').text(txt).html() + '</pre>';
+      var anns = (typeof _spoTexts !== 'undefined' && _spoTexts[code]) ? _spoTexts[code] : [];
+      var preStyle = 'white-space:pre-wrap;font-size:.8rem;max-height:420px;overflow-y:auto;'
+        + 'background:transparent;border:none;padding:0;margin:0;color:var(--text)';
+      var inner = '<div class="qtr-detail-title">' + code + '&nbsp;' + name + '&nbsp;公告原文</div>';
+      if (anns.length === 0) {{
+        inner += '<pre style="' + preStyle + '">（無公告原文）</pre>';
+      }} else if (anns.length === 1) {{
+        inner += '<div style="font-size:.78rem;color:var(--muted);margin-bottom:.3rem">' + anns[0].日期 + '</div>'
+          + '<pre style="' + preStyle + '">' + $('<div>').text(anns[0].原文).html() + '</pre>';
+      }} else {{
+        var cols = '';
+        for (var i = 0; i < Math.min(anns.length, 2); i++) {{
+          cols += '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:.78rem;color:var(--muted);margin-bottom:.3rem">' + anns[i].日期 + (i===0?' 首次公告':' 後續公告') + '</div>'
+            + '<pre style="' + preStyle + '">' + $('<div>').text(anns[i].原文).html() + '</pre>'
+            + '</div>';
+        }}
+        inner += '<div style="display:flex;gap:1.5rem">' + cols + '</div>';
+      }}
       var html = '<tr class="qtr-detail-panel"><td colspan="' + _spoColCount + '" style="padding:0">'
         + '<div class="qtr-detail-inner">' + inner + '</div></td></tr>';
       $tr.after(html); $tr.addClass('detail-open');
@@ -5657,13 +5682,20 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             except Exception:
                 return str(s)
 
-        # 公告原文 JS map: code → text
+        # 公告列表 JS map: code → [{日期, 原文}, ...]（向前相容舊的 公告原文 欄位）
         spo_text_map: dict = {}
         for _, r in df_spo.sort_values("_排序鍵", ascending=False).iterrows():
             code = r.get("股票代碼", "")
-            txt  = r.get("公告原文", "") or ""
-            if code and txt and code not in spo_text_map:
-                spo_text_map[code] = txt
+            if not code or code in spo_text_map:
+                continue
+            anns = r.get("公告列表")
+            if anns and isinstance(anns, list) and len(anns) > 0:
+                spo_text_map[code] = anns
+            elif r.get("公告原文"):
+                # backward compat
+                d = r.get("公告日期", "")
+                d_disp = f"{d[:3]}/{d[3:5]}/{d[5:7]}" if len(str(d)) == 7 else str(d)
+                spo_text_map[code] = [{"日期": d_disp, "原文": r["公告原文"]}]
 
         spo_rows_html = []
         for _, r in df_spo.sort_values("_排序鍵", ascending=False).iterrows():
@@ -6717,6 +6749,8 @@ def fetch_t05st02() -> tuple:
             time.sleep(0.5)
             detail = _parse_spo_detail(text) if text else {}
 
+            _ann_body = _extract_mops_body(text)[:4000] if text else ""
+            _ann_date_disp = f"{date_s[:3]}/{date_s[3:5]}/{date_s[5:7]}" if len(date_s) == 7 else date_s
             spo_result.append({
                 "市場":        market,
                 "股票代碼":    code,
@@ -6727,7 +6761,7 @@ def fetch_t05st02() -> tuple:
                 "增資上限股數": detail.get("增資上限股數"),
                 "認股基準日":  detail.get("認股基準日", ""),
                 "撥券日":      detail.get("撥券日", ""),
-                "公告原文":    _extract_mops_body(text)[:4000] if text else "",
+                "公告列表":    [{"日期": _ann_date_disp, "原文": _ann_body}] if _ann_body else [],
                 "_排序鍵":     (date_s + time_s.zfill(6)).zfill(13),
                 "未反映":      False,
             })
