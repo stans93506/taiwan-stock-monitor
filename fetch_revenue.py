@@ -2986,8 +2986,13 @@ def build_treasury_row(row):
     ann_d = str(row.get("公告日期", "")).zfill(7)
     ann_t = str(row.get("公告時間", "")).zfill(6)
     ann_disp = f"{ann_d[3:5]}/{ann_d[5:7]} {ann_t[:2]}:{ann_t[2:4]}" if len(ann_d) >= 7 else ""
+    status = row.get("狀態", "")
     if after:
         ann_disp = f"<span class='badge-unreact'>未反映</span> {ann_disp}"
+    elif status == "未開始":
+        ann_disp = (f"<span style='background:#555;color:#ccc;font-size:0.7rem;"
+                    f"padding:1px 5px;border-radius:4px;vertical-align:middle;"
+                    f"margin-right:4px'>尚未開始</span>{ann_disp}")
 
     group = "0" if after else "1"
     return (
@@ -4171,8 +4176,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
       <div class="col-6 col-md-3">
         <div class="card stat-card">
-          <div class="num" style="color:#888">{trs_done}</div>
-          <div class="lbl">完成</div>
+          <div class="num" style="color:#fb8c00">{trs_pending}</div>
+          <div class="lbl">尚未開始</div>
         </div>
       </div>
       <div class="col-6 col-md-3">
@@ -5489,6 +5494,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                 lambda k: _is_unreflected(k[:7], k[7:])
             )
         trs_active  = int((df_trs["狀態"] == "執行中").sum())
+        trs_pending = int((df_trs["狀態"] == "未開始").sum())
         trs_done    = int((df_trs["狀態"] == "完成").sum())
         trs_new     = int((df_trs["公告日期"].apply(_roc_to_date) == today).sum())
         trs_unreact = int(df_trs["未反映"].sum())
@@ -5497,9 +5503,11 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             if trs_unreact > 0 else ""
         )
 
-        # 分群：未反映（當日13:30後公告）/ 執行中其餘
+        # 分群：未反映（當日13:30後公告）/ 執行中+未開始其餘
         df_unreact_rows = df_trs[df_trs["未反映"]].sort_values("_排序鍵", ascending=False)
-        df_active_rows  = df_trs[(df_trs["狀態"] == "執行中") & ~df_trs["未反映"]].sort_values("_排序鍵", ascending=False)
+        df_active_rows  = df_trs[
+            df_trs["狀態"].isin(["執行中", "未開始"]) & ~df_trs["未反映"]
+        ].sort_values("_排序鍵", ascending=False)
 
         TRS_THEAD = """<thead><tr>
               <th style='display:none'></th>
@@ -5538,7 +5546,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             <tbody>{active_rows_html}</tbody>
           </table></div>"""
     else:
-        trs_active = trs_done = trs_new = trs_unreact = 0
+        trs_active = trs_pending = trs_done = trs_new = trs_unreact = 0
         trs_unreact_badge = ""
         treasury_content = '<div class="no-data">庫藏股資料暫無法取得</div>'
 
@@ -5811,7 +5819,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         qtr_season_dropdown=qtr_season_dropdown,
         qtr_archive_json=qtr_archive_json,
         qtr_deadline=qtr_deadline,
-        trs_active=trs_active, trs_done=trs_done,
+        trs_active=trs_active, trs_pending=trs_pending, trs_done=trs_done,
         trs_new=trs_new, trs_unreact=trs_unreact,
         trs_unreact_badge=trs_unreact_badge,
         treasury_content=treasury_content,
