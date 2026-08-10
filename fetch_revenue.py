@@ -2427,21 +2427,29 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
                     eps = _parse_num(_nums[-1])
                     break  # 第一行 = 母公司
 
-    # ── 上海商銀格式：基本EPS(元) 在最右欄，數值行最後一個數字即 EPS ──
-    # 格式：合併稅前 母公司業主稅後 合併稅前(累計) 母公司業主稅後(累計) 基本EPS(元)
-    #       稅前   業主稅後          稅前           業主稅後
-    #       32.66  20.94            183.38          121.92              2.51
+    # ── 基本EPS 格式（兩種）──
+    # 1. 王道銀行格式：「稅後基本EPS(元)   0.64」— 數值在同一行
+    # 2. 上海商銀格式：「基本EPS(元)」在欄位標頭最右欄，數值行最後一個數字即 EPS
+    #    合併稅前 母公司業主稅後 合併稅前(累計) 母公司業主稅後(累計) 基本EPS(元)
+    #    稅前   業主稅後          稅前           業主稅後
+    #    32.66  20.94            183.38          121.92              2.51
     if eps is None and '基本EPS' in text:
-        m_hdr = re.search(
-            r'基本EPS[（(]元[）)][^\n]*\n'   # 含 EPS 的欄位標頭行
-            r'(?:[^\d\n]*\n)?'              # 可選：副標頭行（如「稅前 業主稅後」）
-            r'([^\n]+)',                    # 數值行
-            text
-        )
-        if m_hdr:
-            nums = re.findall(r'-?[\d,]+\.?\d*', m_hdr.group(1))
-            if nums:
-                eps = _parse_num(nums[-1])
+        # 先試同一行格式（如「稅後基本EPS(元)   0.64」）
+        m_same = re.search(r'基本EPS[（(]元[）)][^\d\n]*(-?[\d.]+)', text)
+        if m_same:
+            eps = _parse_num(m_same.group(1))
+        else:
+            # 欄位標頭在上、數值行在下的表格格式
+            m_hdr = re.search(
+                r'基本EPS[（(]元[）)][^\n]*\n'   # 含 EPS 的欄位標頭行
+                r'(?:[^\d\n]*\n)?'              # 可選：副標頭行（如「稅前 業主稅後」）
+                r'([^\n]+)',                    # 數值行
+                text
+            )
+            if m_hdr:
+                nums = re.findall(r'-?[\d,]+\.?\d*', m_hdr.group(1))
+                if nums:
+                    eps = _parse_num(nums[-1])
 
     # ── 遠東銀格式：每股稅後盈餘(元)  0.08  0.61（空格對齊純文字表格）──
     # 行格式：「每股稅後盈餘(元)  月值  累計值」，取第一個數值（= 月值）
