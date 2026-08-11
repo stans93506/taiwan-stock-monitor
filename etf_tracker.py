@@ -1344,6 +1344,7 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     def _dash(): return f"<td class='text-muted' data-order='{_SORT_NONE}'>-</td>"
 
     stock_rows = ""
+    summary_stocks = []
     for sc, sd in sorted_stocks:
         if sd["total_shares"] == 0:
             continue
@@ -1395,8 +1396,10 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
         volume  = sdi.get("volume", 0)
         net_raw = sd["net_delta_shares"]  # in shares
 
+        _sbc_save = None
         if has_delta and issued:
             _sbc_r = net_raw / issued * 100
+            _sbc_save = round(_sbc_r, 3)
             _sbc_s = "+" if _sbc_r > 0 else ""
             _sbc_c = "pos" if _sbc_r > 0 else ("neg" if _sbc_r < 0 else "")
             sbc_stock_cell = f"<td class='{_sbc_c}' data-order='{_sbc_r}'>{_sbc_s}{abs(_sbc_r):.3f}%</td>"
@@ -1406,8 +1409,10 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
             sbc_stock_cell = _dash()
 
         # 量比（淨變動張數／當日成交量）
+        _vr_save = None
         if has_delta and volume:
             _vr_r = net_raw / volume * 100
+            _vr_save = round(_vr_r, 2)
             _vr_s = "+" if _vr_r > 0 else ""
             _vr_c = "pos" if _vr_r > 0 else ("neg" if _vr_r < 0 else "")
             vr_cell = f"<td class='{_vr_c}' data-order='{_vr_r}'>{_vr_s}{abs(_vr_r):.2f}%</td>"
@@ -1415,6 +1420,14 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
             vr_cell = f"<td class='text-muted' data-order='0'>0.00%</td>"
         else:
             vr_cell = _dash()
+
+        summary_stocks.append({
+            "c": sc, "n": sd["name"],
+            "ndv": sd["net_delta_value"], "ndl": net_lots,
+            "sbc": _sbc_save, "chg": price_changes.get(sc), "vr": _vr_save,
+            "ts": tot_shares, "tv": tot_val, "fc": fund_count,
+            "bv": sd["buy_value"], "sv": sd["sell_value"],
+        })
 
         sname_safe = sd['name'].replace("'", "&#39;")
         stock_rows += (
@@ -1437,6 +1450,28 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     total_buy_all  = sum(d["buy_value"]  for _, d in sorted_stocks if has_prev)
     total_sell_all = sum(d["sell_value"] for _, d in sorted_stocks if has_prev)
     net_all        = total_buy_all - total_sell_all
+
+    # ── 存今日彙整快照（供歷史日期下拉使用）──────────────────────────
+    _today_suffix = f"{datetime.today().year - 1911}{datetime.today().month:02d}{datetime.today().day:02d}"
+    _summary_path = DATA_DIR / f"summary_{_today_suffix}.json"
+    try:
+        _summary_path.write_text(json.dumps({
+            "date_str": _today_suffix,
+            "has_prev": has_prev,
+            "total_buy": total_buy_all,
+            "total_sell": total_sell_all,
+            "stocks": summary_stocks,
+        }, ensure_ascii=False), encoding="utf-8")
+    except Exception as _e:
+        print(f"  ⚠ ETF summary 存檔失敗：{_e}")
+
+    # 掃描可用歷史日期（最近 30 天）
+    _avail_dates = []
+    for _p in sorted(DATA_DIR.glob("summary_*.json"), reverse=True):
+        _dp = _p.stem[len("summary_"):]
+        if len(_dp) == 7 and _dp.isdigit():
+            _avail_dates.append({"key": _dp, "label": f"{_dp[:3]}/{_dp[3:5]}/{_dp[5:7]}"})
+    _dates_json = json.dumps(_avail_dates, ensure_ascii=False)
     net_all_cls    = "color:#ff6b6b" if net_all < 0 else "color:#4ecdc4"
     net_all_sign   = "+" if net_all > 0 else ("-" if net_all < 0 else "")
     summary_bar = f"""
@@ -1792,17 +1827,127 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     else:
         stale_badge = ""
 
+    _dropdown_html = ""
+    if len(_avail_dates) > 1:
+        _opts = "".join(
+            f"<option value='{d['key']}'>{d['label']}</option>"
+            for d in _avail_dates
+        )
+        _dropdown_html = f"""
+<select id="etfDateSelect" class="form-select form-select-sm" style="width:auto;min-width:130px" onchange="etfSelectDate(this.value)">
+  <option value="latest">最新</option>
+  {_opts}
+</select>"""
+
     return f"""
 <div class="container-fluid px-3 py-2">
   <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
     <h5 class="mb-0">主動ETF持股追蹤</h5>
     <small class="text-muted">更新：{update_time}</small>
+    {_dropdown_html}
     {stale_badge}
   </div>
-  {stock_table}
-  {change_table}
-  {fund_table}
-</div>"""
+  <div id="etfCurrentView">
+    {stock_table}
+    {change_table}
+    {fund_table}
+  </div>
+  <div id="etfHistoryView" style="display:none"></div>
+</div>
+<script>
+(function(){{
+  var AVAIL = {_dates_json};
+  function fmtAmt(v){{
+    if(v===null||v===undefined) return '-';
+    var abs=Math.abs(v), sign=v>0?'+':v<0?'-':'';
+    if(abs>=1e8) return sign+(abs/1e8).toFixed(2)+' 億';
+    return sign+(abs/1e4).toFixed(0)+' 萬';
+  }}
+  function fmtLots(v){{
+    if(v===null||v===undefined||v===0) return null;
+    return (v>0?'+':'')+v.toLocaleString();
+  }}
+  function fmtShares(v){{
+    return Math.ceil(v/1000).toLocaleString()+' 張';
+  }}
+  function fmtVal(v){{
+    if(!v||v<10000) return '-';
+    return (v/1e8).toFixed(2)+' 億';
+  }}
+  function cls(v){{return v>0?'pos':v<0?'neg':'';}}
+
+  function renderHistory(data){{
+    var hp=data.has_prev, tb=data.total_buy||0, ts_=data.total_sell||0, net=tb-ts_;
+    var netCls=net<0?'color:#ff6b6b':'color:#4ecdc4', netSign=net>0?'+':net<0?'-':'';
+    var bar=hp?`<div style="background:#1a1a2e;color:#fff;display:flex;gap:0;border-bottom:1px solid #333" class="px-0">
+  <div style="flex:1;padding:10px 20px;border-right:1px solid #333"><span style="color:#aaa;font-size:.8rem">買進</span><span style="color:#4ecdc4;font-size:1.4rem;font-weight:700;margin-left:12px">${{(tb/1e8).toFixed(0)}} 億</span></div>
+  <div style="flex:1;padding:10px 20px;border-right:1px solid #333"><span style="color:#aaa;font-size:.8rem">賣出</span><span style="color:#ff6b6b;font-size:1.4rem;font-weight:700;margin-left:12px">${{(ts_/1e8).toFixed(0)}} 億</span></div>
+  <div style="flex:1;padding:10px 20px"><span style="color:#aaa;font-size:.8rem">買賣超</span><span style="${{netCls}};font-size:1.4rem;font-weight:700;margin-left:12px">${{netSign}}${{(Math.abs(net)/1e8).toFixed(0)}} 億</span></div>
+</div>`:'';
+    var rows='';
+    (data.stocks||[]).forEach(function(s){{
+      var ndvFmt=s.ndv?fmtAmt(s.ndv):hp?'0.00 億':'-';
+      var ndvCls=s.ndv?cls(s.ndv):(hp?'text-muted':'text-muted');
+      var ndlFmt=fmtLots(s.ndl); var ndlCls=ndlFmt?cls(s.ndl):'text-muted';
+      var sbcFmt=s.sbc!=null?(s.sbc>0?'+':'')+Math.abs(s.sbc).toFixed(3)+'%':hp?'0.000%':'-';
+      var sbcCls=s.sbc!=null?cls(s.sbc):'text-muted';
+      var chgFmt=s.chg!=null?(s.chg>0?'+':'')+s.chg.toFixed(2)+'%':'-';
+      var chgCls=s.chg!=null?cls(s.chg):'text-muted';
+      var vrFmt=s.vr!=null?(s.vr>0?'+':'')+Math.abs(s.vr).toFixed(2)+'%':hp?'0.00%':'-';
+      var vrCls=s.vr!=null?cls(s.vr):'text-muted';
+      var bvFmt=s.bv?(s.bv/1e8).toFixed(2)+' 億':'-';
+      var svFmt=s.sv?(s.sv/1e8).toFixed(2)+' 億':'-';
+      rows+=`<tr>
+        <td><b style="color:#4fc3f7">${{s.c}}</b> ${{s.n}}</td>
+        <td class="${{ndvCls}}">${{ndvFmt}}</td>
+        <td class="${{ndlCls}}">${{ndlFmt||'-'}}</td>
+        <td class="${{sbcCls}}">${{sbcFmt}}</td>
+        <td class="${{chgCls}}">${{chgFmt}}</td>
+        <td class="${{vrCls}}">${{vrFmt}}</td>
+        <td>${{fmtShares(s.ts)}}</td>
+        <td>${{fmtVal(s.tv)}}</td>
+        <td class="text-center">${{s.fc}}</td>
+        <td class="${{s.bv?'pos':'text-muted'}}">${{bvFmt}}</td>
+        <td class="${{s.sv?'neg':'text-muted'}}">${{s.sv?'-'+svFmt:'-'}}</td>
+      </tr>`;
+    }});
+    return `<div class="card mb-3">
+  <div class="card-header px-3 py-2 fw-bold">股票總表<span class="text-muted fw-normal ms-2" style="font-size:.85rem">（歷史紀錄，不可互動）</span></div>
+  ${{bar}}
+  <div class="table-responsive">
+  <table class="table table-hover table-sm mb-0">
+    <thead><tr>
+      <th>標的</th><th>淨額</th><th>張數</th><th>股本比</th><th>漲跌%</th><th>量比</th>
+      <th>持有張</th><th>持有估值</th><th>基金</th><th>買進</th><th>賣出</th>
+    </tr></thead>
+    <tbody>${{rows}}</tbody>
+  </table></div></div>`;
+  }}
+
+  window.etfSelectDate = function(key){{
+    if(key==='latest'){{
+      document.getElementById('etfCurrentView').style.display='';
+      document.getElementById('etfHistoryView').style.display='none';
+      document.getElementById('etfHistoryView').innerHTML='';
+      return;
+    }}
+    var hv=document.getElementById('etfHistoryView');
+    hv.style.display='';
+    hv.innerHTML='<div class="text-muted p-3">載入中…</div>';
+    document.getElementById('etfCurrentView').style.display='none';
+    fetch('etf_data/summary_'+key+'.json?_='+Date.now())
+      .then(function(r){{if(!r.ok)throw new Error(r.status);return r.json();}} )
+      .then(function(data){{
+        var label=key.slice(0,3)+'/'+key.slice(3,5)+'/'+key.slice(5,7);
+        hv.innerHTML='<div class="alert alert-secondary py-1 px-3 mb-2" style="font-size:.85rem">歷史紀錄：'+label+'</div>'+renderHistory(data);
+      }})
+      .catch(function(){{hv.innerHTML='<div class="text-danger p-3">載入失敗，此日期無資料</div>';}});
+  }};
+  // 預設選最新
+  var sel=document.getElementById('etfDateSelect');
+  if(sel) sel.value='latest';
+}})();
+</script>"""
 
 
 if __name__ == "__main__":
