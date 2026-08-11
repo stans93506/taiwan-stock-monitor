@@ -867,7 +867,7 @@ def build_rev_row(row, group: str = "1", hist_pts: list = None):
         f"<tr data-code='{code}' style='cursor:pointer'>"
         f"<td style='display:none'>{group}</td>"   # 隱藏群組欄（DataTables 分組用）
         f"<td><span class='badge {badge}'>{mkt}</span></td>"
-        f"<td>{code}</td>"
+        f"<td><b style='color:#4fc3f7'>{code}</b></td>"
         f"<td>{name}</td>"
         + _ai_score_cell(calc_rev_ai_score(
             row.get("當月營收"), row.get("上月營收"),
@@ -2647,7 +2647,7 @@ def build_monthly_row(row, prev: dict = None):
         f"<tr{tr_cls} data-code='{code}'>"
         f"<td style='display:none'>{group}</td>"
         f"<td><span class='badge {badge}'>{mkt}</span></td>"
-        f"<td>{code}</td>"
+        f"<td><b style='color:#4fc3f7'>{code}</b></td>"
         f"<td>{row.get('公司名稱','')}</td>"
         f"<td>{time_cell}</td>"
         + ai_cell
@@ -2832,7 +2832,7 @@ def build_qtr_row(row, prev: dict = None):
         f"<tr{tr_cls} data-code='{_code_attr}' style='cursor:pointer'>"
         f"<td style='display:none'>{group}</td>"
         f"<td><span class='badge {badge}'>{mkt}</span></td>"
-        f"<td>{row.get('股票代碼','')}</td>"
+        f"<td><b style='color:#4fc3f7'>{row.get('股票代碼','')}</b></td>"
         f"<td>{row.get('公司名稱','')}</td>"
         f"<td>{time_cell}</td>"
         + ai_cell
@@ -2994,7 +2994,7 @@ def build_treasury_row(row):
         f"<tr{tr_cls}>"
         f"<td style='display:none'>{group}</td>"
         f"<td><span class='badge {badge}'>{mkt}</span></td>"
-        f"<td>{row.get('股票代碼','')}</td>"
+        f"<td><b style='color:#4fc3f7'>{row.get('股票代碼','')}</b></td>"
         f"<td>{row.get('公司名稱','')}</td>"
         f"<td>{ann_disp}</td>"
         f"<td>{purpose_cell}</td>"
@@ -3857,7 +3857,7 @@ def build_event_row(ev: dict) -> str:
         f"<tr>"
         f"<td>{sched}{days_part}</td>"
         f"<td>{type_badge}</td>"
-        f"<td>{code}</td>"
+        f"<td><b style='color:#4fc3f7'>{code}</b></td>"
         f"<td>{name}</td>"
         + _price_cell(ev.get("宣布日股價"), ann_disp)
         + _price_cell(ev.get("預定日股價"), sched_note)
@@ -5739,7 +5739,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             spo_rows_html.append(
                 f'<tr style="cursor:pointer" data-code="{code}" data-name="{name}">'
                 f'<td><span class="badge {badge}">{market}</span></td>'
-                f"<td>{code}</td>"
+                f"<td><b style='color:#4fc3f7'>{code}</b></td>"
                 f"<td>{name}</td>"
                 f"<td>{ann_d}</td>"
                 f"<td>{shares_disp}</td>"
@@ -6046,7 +6046,7 @@ def fetch_t05st02() -> tuple:
     EVENT_KW        = ["法說會", "投資人說明會", "法人說明會"]     # 法說會公告
     EVENT_EXCLUDE   = ["取消", "延期", "停辦", "更正"]            # 排除取消/延期
     SPO_KW          = ["辦理現金增資", "現金增資"]                # 現增公告
-    SPO_REQUIRE     = ["辦理", "現金增資發行"]                     # 本公司辦理才需其一（排除「現金增資[外部公司名]」型投資公告）
+    SPO_REQUIRE     = ["辦理", "現金增資發行", "認股基準日"]        # 本公司辦理才需其一（排除「現金增資[外部公司名]」型投資公告）
     SPO_EXCLUDE     = ["更正", "補正", "認購情形", "實施情況", "辦理情形",
                        "增資作業已完成", "私募", "無償",           # 非新決議 / 私募 / 無償配股
                        "代子公司", "代孫公司", "代被投資", "子公司",  # 子/孫公司相關（代發公告、增資子公司）
