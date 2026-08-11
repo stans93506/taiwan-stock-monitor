@@ -984,7 +984,8 @@ def _is_unreflected(date_s: str, time_str: str) -> bool:
         while next_td.weekday() >= 5:   # 跳過週六(5)、週日(6)
             next_td += timedelta(days=1)
         next_open = datetime(next_td.year, next_td.month, next_td.day, 9, 0, 0)
-        return datetime.now() < next_open
+        now_tw = datetime.utcnow() + timedelta(hours=8)  # 統一用台灣時間比較
+        return now_tw < next_open
     except Exception:
         return False
 
