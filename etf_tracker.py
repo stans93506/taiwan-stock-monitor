@@ -1169,7 +1169,9 @@ def run_all(force_fetch: bool = False) -> dict[str, dict]:
         print(f"  [ETF] {code} {name}...", end="", flush=True)
 
         # 今日快照已存在 → 直接讀快取，跳過 HTTP 請求
-        if not force_fetch and _today_snapshot_exists(code):
+        # jpmorgan PCF 在盤中會更新，不快取以確保資料最新
+        _skip_cache = source == "jpmorgan"
+        if not force_fetch and not _skip_cache and _today_snapshot_exists(code):
             print(" ✓ 快取", end="")
             today_data = None  # 由 load_latest_snapshots 讀取
         else:
