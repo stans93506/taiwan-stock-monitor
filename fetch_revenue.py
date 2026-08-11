@@ -6771,6 +6771,14 @@ def fetch_t05st02() -> tuple:
 
             text, _html = _fetch_detail(p)
             time.sleep(0.5)
+
+            # 只保留第11款（現金增資新決議），過濾資金運用計畫變更(16款)等後續公告
+            if text and re.search(r'符合條款\s*第\s*(\d+)\s*款', text):
+                clause = re.search(r'符合條款\s*第\s*(\d+)\s*款', text).group(1)
+                if clause != "11":
+                    print(f"    [{code}] 跳過（第{clause}款，非第11款現增）")
+                    continue
+
             detail = _parse_spo_detail(text) if text else {}
 
             _ann_body = _extract_mops_body(text)[:4000] if text else ""
