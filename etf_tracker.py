@@ -2144,6 +2144,7 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
         return f._etfH!==true;
       }});
       var hFilter=function(s,d,idx,row){{
+        if(!s.nTable||s.nTable.id!=='etfHChangeTable') return true;
         var $tr=$(row);
         if(_hFundFilter && $tr.attr('data-etf')!==_hFundFilter) return false;
         if(_hStockFilter && $tr.attr('data-stock')!==_hStockFilter) return false;
