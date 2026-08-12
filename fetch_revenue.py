@@ -5909,6 +5909,28 @@ def _parse_spo_detail(text: str) -> dict:
                     pass
                 break
 
+    # fallback：「發行股數：普通股X,XXX仟股」格式（如 1569 濱川）
+    if not shares:
+        m = re.search(r"發行股數[：:]\s*(?:普通股|新股)?\s*([\d,]+)\s*仟股", text)
+        if m:
+            try:
+                shares = int(m.group(1).replace(",", "")) * 1000
+            except Exception:
+                pass
+
+    # fallback：「發行股數：...上限X,XXX,XXX股」格式（如 1727 中華化）
+    if not shares:
+        m = re.search(r"發行股數[：:][^\n。]{0,30}上限\s*([\d,]+)\s*股", text)
+        if m:
+            try:
+                shares = int(m.group(1).replace(",", ""))
+            except Exception:
+                pass
+
+    # 最終兜底：增資股數 = 增資上限股數（只有上限沒有明確股數時，如 3533 嘉澤）
+    if not shares and max_shares:
+        shares = max_shares
+
     # ── 認股基準日：現金增資認股基準日（第16條，初始公告必有）──
     record_date = ""
     for pat in [
