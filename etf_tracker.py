@@ -1900,7 +1900,7 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
         _first_label = _avail_dates[0]["label"] if _avail_dates else ""
         _dd_items = "".join(
             '<li><a class="dropdown-item etf-date-item' + (' active' if i == 0 else '') +
-            '" href="#" data-key="' + d["key"] + '">' + d["label"] + '</a></li>'
+            '" href="#" onclick="etfSelectDate(\'' + d["key"] + '\');document.getElementById(\'etfDateLabel\').textContent=\'' + d["label"] + '\';document.querySelectorAll(\'.etf-date-item\').forEach(function(el){{el.classList.remove(\'active\');}});this.classList.add(\'active\');return false;">' + d["label"] + '</a></li>'
             for i, d in enumerate(_avail_dates)
         )
         _dropdown_html = (
@@ -2256,16 +2256,6 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     $b.toggleClass('btn-primary',_hChangedOnly).toggleClass('btn-outline-primary',!_hChangedOnly);
     if(_hDTs['etfHChangeTable']) _hDTs['etfHChangeTable'].draw();
   }};
-
-  // ── date dropdown ──
-  $(document).on('click','.etf-date-item',function(e){{
-    e.preventDefault();
-    var key=$(this).data('key');
-    $('.etf-date-item').removeClass('active');
-    $(this).addClass('active');
-    $('#etfDateLabel').text($(this).text());
-    etfSelectDate(key);
-  }});
 
   window.etfSelectDate=function(key){{
     var isLive=(key===LIVE_KEY);
