@@ -1462,21 +1462,6 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     total_sell_all = sum(d["sell_value"] for _, d in sorted_stocks if has_prev)
     net_all        = total_buy_all - total_sell_all
 
-    # ── 存今日彙整快照（供歷史日期下拉使用）──────────────────────────
-    _today_suffix = f"{datetime.today().year - 1911}{datetime.today().month:02d}{datetime.today().day:02d}"
-    _summary_path = DATA_DIR / f"summary_{_today_suffix}.json"
-    try:
-        _summary_path.write_text(json.dumps({
-            "date_str": _today_suffix,
-            "has_prev": has_prev,
-            "total_buy": total_buy_all,
-            "total_sell": total_sell_all,
-            "stocks": summary_stocks,
-            "etfs": summary_etfs,
-            "changes": summary_changes,
-        }, ensure_ascii=False), encoding="utf-8")
-    except Exception as _e:
-        print(f"  ⚠ ETF summary 存檔失敗：{_e}")
 
     # 掃描可用歷史日期（最近 30 天）
     _avail_dates = []
@@ -1634,6 +1619,22 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
             "is_new": _row["is_new"], "is_rm": _row["is_removed"],
             "changed": _item["is_changed"], "hp": _item["has_prev"],
         })
+
+    # ── 存今日彙整快照（供歷史日期下拉使用）──────────────────────────
+    _today_suffix = f"{datetime.today().year - 1911}{datetime.today().month:02d}{datetime.today().day:02d}"
+    _summary_path = DATA_DIR / f"summary_{_today_suffix}.json"
+    try:
+        _summary_path.write_text(json.dumps({
+            "date_str": _today_suffix,
+            "has_prev": has_prev,
+            "total_buy": total_buy_all,
+            "total_sell": total_sell_all,
+            "stocks": summary_stocks,
+            "etfs": summary_etfs,
+            "changes": summary_changes,
+        }, ensure_ascii=False), encoding="utf-8")
+    except Exception as _e:
+        print(f"  ⚠ ETF summary 存檔失敗：{_e}")
 
     change_rows = ""
     for item in all_list:
