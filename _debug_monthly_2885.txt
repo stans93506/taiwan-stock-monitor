@@ -1,0 +1,25 @@
+=== 2885 FAILED desc= 元大金控公告115年7月份自結合併損益 ===
+﻿
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Overrun - 查詢過於頻繁,請稍後再試!!
+Too many query requests from your ip, please wait and try again later!!
+
+
+
+
+
+
+
