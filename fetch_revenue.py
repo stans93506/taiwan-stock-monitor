@@ -105,6 +105,7 @@ EVENT_KEEP_DAYS    = 14   # 法說會：預定日過後保留幾天（追蹤績�
 SPO_CACHE_FILE     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "spo_cache.json")
 SPO_CACHE_DAYS     = 90   # 現增：公告到新股掛牌可能跨月，保留 90 天
 REV_HIST_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rev_hist_cache.json")
+QTR_CUM_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_cum_cache.json")
 REV_HIST_MONTHS    = 60   # 保留最近幾個月的歷史月營收
 MONTHLY_QTR_HIST_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monthly_qtr_hist_cache.json")
 # 不適用季報頁面的股票代碼（不公布 EPS 或格式不符，如投資控股、特殊目的公司）
@@ -702,6 +703,25 @@ def save_prev_data_cache(quarter_label: str, prev: dict) -> None:
                       f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"  ⚠️ prev_data cache 寫入失敗：{e}")
+
+
+def load_qtr_cum_cache() -> dict:
+    """載入季報累計原始金額 cache（每季公告時存入，供下季計算單季值用）。
+    格式：{code: {quarter, rev, gross, oper, pretax, eps}}"""
+    try:
+        with open(QTR_CUM_CACHE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_qtr_cum_cache(data: dict) -> None:
+    """儲存季報累計原始金額 cache。"""
+    try:
+        with open(QTR_CUM_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"  ⚠️ qtr_cum_cache 寫入失敗：{e}")
 
 
 def load_monthly_prev_cache(quarter_label: str) -> dict:
@@ -2830,7 +2850,11 @@ def build_qtr_row(row, prev: dict = None):
         if prev_val is None or (isinstance(prev_val, float) and pd.isna(prev_val)):
             cls = "pos" if curr >= 0 else "neg"
             return f"<td class='{cls}'>{s}</td>"
-        better = (curr < prev_val) if lower_better else (curr > prev_val)
+        if lower_better:
+            # 兩季皆負（如業外損失）：虧損縮小才是改善（curr > prev）
+            better = (curr > prev_val) if (curr < 0 and prev_val < 0) else (curr < prev_val)
+        else:
+            better = curr > prev_val
         color = "#fb8c00" if better else "var(--text)"
         fw = "600" if better else "400"
         return f"<td style='color:{color};font-weight:{fw}'>{s}</td>"
@@ -5368,6 +5392,15 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                     _pr_gross  = _pv.get("上季毛利")
                     _pr_oper   = _pv.get("上季營業利益")
                     _pr_pretax = _pv.get("上季稅前淨利")
+            # 再從 qtr_history（qtr_cache 歷史）查上季原始金額
+            if _pr_rev is None and not _is_q1:
+                _pq_label = _pv.get("上季季度") or (_pq_str if _pq_str else "")
+                if _pq_label and _code in (qtr_history or {}):
+                    _hq = (qtr_history or {}).get(_code, {}).get(_pq_label, {})
+                    _pr_rev    = _dv(_hq, "營業收入")
+                    _pr_gross  = _dv(_hq, "毛利")
+                    _pr_oper   = _dv(_hq, "營業利益")
+                    _pr_pretax = _dv(_hq, "稅前淨利")
 
             def _sq(c, p):
                 return round(float(c) - float(p), 0) if (c is not None and p is not None) else c
@@ -7336,6 +7369,79 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
     if _hist_filled:
         print(f"  月營收補算：{_hist_filled} 家的上季金額已從月加總推估")
 
+    # qtr_cache 歷史補充：對 _cqdata 中有上季原始金額的公司直接取用（優先於跨執行 cache）
+    def _safe_num(d, k):
+        if d is None:
+            return None
+        try:
+            v = d.get(k)
+        except Exception:
+            return None
+        return None if (v is None or (isinstance(v, float) and pd.isna(v))) else v
+    _qhist_filled = 0
+    for _c, _p in prev_data.items():
+        if _p.get("上季營收") is not None:
+            continue
+        _prev_q = _p.get("上季季度", "")
+        if not _prev_q or _c not in _cqdata:
+            continue
+        _hq = _cqdata[_c].get(_prev_q, {})
+        _fill_rev = _safe_num(_hq, "營業收入")
+        if _fill_rev is None:
+            continue
+        _p["上季營收"]    = _fill_rev
+        _p["上季毛利"]    = _safe_num(_hq, "毛利")
+        _p["上季營業利益"] = _safe_num(_hq, "營業利益")
+        _p["上季稅前淨利"] = _safe_num(_hq, "稅前淨利")
+        _qhist_filled += 1
+    if _qhist_filled:
+        print(f"  qtr_cache 歷史補充：{_qhist_filled} 家的上季原始金額已從歷史快取取得")
+
+    # qtr_cum_cache 補充：跨執行持久化 cache（含前幾次執行存下的累計原始金額）
+    _qtr_cum_cache = load_qtr_cum_cache()
+    _cum_filled = 0
+    for _c, _p in prev_data.items():
+        if _p.get("上季營收") is not None:
+            continue
+        _prev_q = _p.get("上季季度", "")
+        _cached = _qtr_cum_cache.get(_c, {})
+        if not _cached or _cached.get("quarter") != _prev_q:
+            continue
+        _p["上季營收"]    = _cached.get("rev")
+        _p["上季毛利"]    = _cached.get("gross")
+        _p["上季營業利益"] = _cached.get("oper")
+        _p["上季稅前淨利"] = _cached.get("pretax")
+        _cum_filled += 1
+    if _cum_filled:
+        print(f"  qtr_cum_cache 補充：{_cum_filled} 家的上季原始金額已從累計 cache 取得")
+
+    # 更新 qtr_cum_cache：存入本季累計原始金額，供下季計算時使用
+    # （Q1 存獨立值；Q2+ 存 H1/9M/全年累計，下季扣掉得單季值）
+    def _qnum_str(q):
+        try:
+            yr, n = str(q).split("Q"); return int(yr) * 10 + int(n)
+        except Exception:
+            return 0
+    if df_qtr is not None and not df_qtr.empty:
+        for _, _qrow in df_qtr.iterrows():
+            _c = str(_qrow.get("股票代碼", "")).strip()
+            _q = str(_qrow.get("季度", "")).strip()
+            _rev    = _safe_num(_qrow, "營業收入")
+            _gross  = _safe_num(_qrow, "毛利")
+            _oper   = _safe_num(_qrow, "營業利益")
+            _pretax = _safe_num(_qrow, "稅前淨利")
+            _eps    = _safe_num(_qrow, "EPS")
+            if not _c or not _q or _rev is None:
+                continue
+            _ex = _qtr_cum_cache.get(_c, {})
+            if not _ex or _qnum_str(_q) >= _qnum_str(_ex.get("quarter", "")):
+                _qtr_cum_cache[_c] = {
+                    "quarter": _q, "rev": _rev, "gross": _gross,
+                    "oper": _oper, "pretax": _pretax, "eps": _eps,
+                }
+        save_qtr_cum_cache(_qtr_cum_cache)
+        print(f"  qtr_cum_cache 已更新（{len(_qtr_cum_cache)} 家）")
+
     _news_date_str = (news_fetch_time or datetime.now()).strftime("%Y/%m/%d %H:%M 更新")
     _rev_archive = load_rev_archive()
     html = generate_html(df_rev, df_qtr, roc_year, month, prev_data, df_trs, df_monthly,
@@ -7360,7 +7466,18 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
     if _browser_is_open():
         print("  瀏覽器頁面開著，由 meta refresh 自動重整")
     else:
-        url = f"file:///{OUTPUT_FILE.replace(chr(92), '/')}"
+        # 優先用 localhost:8080（ETF fetch() 需要 HTTP 協議），file:// 會被瀏覽器安全政策封鎖
+        import socket as _sock
+        def _localhost_up(port=8080):
+            try:
+                s = _sock.create_connection(("127.0.0.1", port), timeout=0.5)
+                s.close(); return True
+            except OSError:
+                return False
+        if _localhost_up():
+            url = f"http://127.0.0.1:8080/index.html"
+        else:
+            url = f"file:///{OUTPUT_FILE.replace(chr(92), '/')}"
         _chrome_paths = [
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
