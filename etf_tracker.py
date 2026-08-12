@@ -2257,7 +2257,8 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     var sel=document.getElementById('etfDateSelect');
     if(sel && sel.value!==key) sel.value=key;
     var isLive=(key===LIVE_KEY);
-    $('#etfCurrentView').toggle(isLive);
+    var _cv=document.getElementById('etfCurrentView');
+    if(_cv) _cv.style.display=isLive?'':'none';
     var hv=document.getElementById('etfHistoryView');
     if(isLive){{
       _destroyHDTs();

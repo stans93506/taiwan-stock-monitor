@@ -4485,7 +4485,7 @@
   <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
     <h5 class="mb-0">主動ETF持股追蹤</h5>
     <small class="text-muted">更新：2026/08/12 11:42</small>
-    <div class="dropdown d-inline-block"><button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown"><span id="etfDateLabel">115/08/12</span></button><ul class="dropdown-menu"><li><a class="dropdown-item etf-date-item active" href="#" onclick="etfSelectDate('1150812');document.getElementById('etfDateLabel').textContent='115/08/12';document.querySelectorAll('.etf-date-item').forEach(function(el){{el.classList.remove('active');}});this.classList.add('active');return false;">115/08/12</a></li><li><a class="dropdown-item etf-date-item" href="#" onclick="etfSelectDate('1150811');document.getElementById('etfDateLabel').textContent='115/08/11';document.querySelectorAll('.etf-date-item').forEach(function(el){{el.classList.remove('active');}});this.classList.add('active');return false;">115/08/11</a></li></ul></div>
+    <select id="etfDateSelect" class="form-select form-select-sm d-inline-block" style="width:auto;min-width:120px;background-color:#2a2a3e;color:#e0e0e0;border-color:#555" onchange="etfSelectDate(this.value)"><option value="1150812">115/08/12</option><option value="1150811">115/08/11</option></select>
     
   </div>
   <div id="etfCurrentView">
@@ -5175,7 +5175,10 @@
 
   window.etfSelectDate=function(key){
     var isLive=(key===LIVE_KEY);
-    $('#etfCurrentView').toggle(isLive);
+    var sel=document.getElementById('etfDateSelect');
+    if(sel && sel.value!==key) sel.value=key;
+    var _cv=document.getElementById('etfCurrentView');
+    if(_cv) _cv.style.display=isLive?'':'none';
     var hv=document.getElementById('etfHistoryView');
     if(isLive){
       _destroyHDTs();
