@@ -5895,11 +5895,12 @@ def _parse_spo_detail(text: str) -> dict:
                     pass
                 shares = None
 
-    # fallback：「發行普通股X,XXX仟股」或「發行總股數:X,XXX仟股」格式（數字單位仟，需 ×1000）
+    # fallback：「發行普通股X,XXX仟/千股」或「發行總股數:X,XXX仟/千股」格式（數字單位仟/千，需 ×1000）
     if not shares:
         for _pat in [
-            r"發行普通股\s*([\d,]+)\s*仟股",
-            r"發行總股數[：:]\s*([\d,]+)\s*仟股",
+            r"發行普通股\s*([\d,]+)\s*[仟千]股",
+            r"發行總股數[：:]\s*([\d,]+)\s*[仟千]股",
+            r"股數[：:]\s*發行普通股\s*([\d,]+)\s*[仟千]股",   # 2025 千興格式
         ]:
             m = re.search(_pat, text)
             if m:

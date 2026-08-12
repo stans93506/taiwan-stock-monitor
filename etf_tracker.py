@@ -1900,7 +1900,7 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
         _first_label = _avail_dates[0]["label"] if _avail_dates else ""
         _dd_items = "".join(
             '<li><a class="dropdown-item etf-date-item' + (' active' if i == 0 else '') +
-            '" href="#" onclick="etfSelectDate(\'' + d["key"] + '\');document.getElementById(\'etfDateLabel\').textContent=\'' + d["label"] + '\';document.querySelectorAll(\'.etf-date-item\').forEach(function(el){{el.classList.remove(\'active\');}});this.classList.add(\'active\');return false;">' + d["label"] + '</a></li>'
+            '" href="#" data-key="' + d["key"] + '" onclick="etfSelectDate(\'' + d["key"] + '\');return false;">' + d["label"] + '</a></li>'
             for i, d in enumerate(_avail_dates)
         )
         _dropdown_html = (
@@ -2258,6 +2258,12 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
   }};
 
   window.etfSelectDate=function(key){{
+    // 更新 dropdown label 與 active 狀態
+    document.querySelectorAll('.etf-date-item').forEach(function(el){{
+      var active=(el.getAttribute('data-key')===key);
+      el.classList.toggle('active',active);
+      if(active) document.getElementById('etfDateLabel').textContent=el.textContent;
+    }});
     var isLive=(key===LIVE_KEY);
     $('#etfCurrentView').toggle(isLive);
     var hv=document.getElementById('etfHistoryView');
