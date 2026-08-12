@@ -1897,19 +1897,15 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
 
     _dropdown_html = ""
     if _avail_dates:
-        _first_label = _avail_dates[0]["label"] if _avail_dates else ""
-        _dd_items = "".join(
-            '<li><a class="dropdown-item etf-date-item' + (' active' if i == 0 else '') +
-            '" href="#" data-key="' + d["key"] + '" onclick="etfSelectDate(\'' + d["key"] + '\');return false;">' + d["label"] + '</a></li>'
-            for i, d in enumerate(_avail_dates)
+        _opts = "".join(
+            '<option value="' + d["key"] + '">' + d["label"] + '</option>'
+            for d in _avail_dates
         )
         _dropdown_html = (
-            '<div class="dropdown d-inline-block">'
-            '<button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">'
-            '<span id="etfDateLabel">' + _first_label + '</span>'
-            '</button>'
-            '<ul class="dropdown-menu">' + _dd_items + '</ul>'
-            '</div>'
+            '<select id="etfDateSelect" class="form-select form-select-sm d-inline-block" '
+            'style="width:auto;min-width:120px;background-color:#2a2a3e;color:#e0e0e0;border-color:#555" '
+            'onchange="etfSelectDate(this.value)">'
+            + _opts + '</select>'
         )
 
     return f"""
@@ -2258,12 +2254,8 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
   }};
 
   window.etfSelectDate=function(key){{
-    // 更新 dropdown label 與 active 狀態
-    document.querySelectorAll('.etf-date-item').forEach(function(el){{
-      var active=(el.getAttribute('data-key')===key);
-      el.classList.toggle('active',active);
-      if(active) document.getElementById('etfDateLabel').textContent=el.textContent;
-    }});
+    var sel=document.getElementById('etfDateSelect');
+    if(sel && sel.value!==key) sel.value=key;
     var isLive=(key===LIVE_KEY);
     $('#etfCurrentView').toggle(isLive);
     var hv=document.getElementById('etfHistoryView');
