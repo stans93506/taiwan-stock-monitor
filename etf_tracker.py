@@ -1322,7 +1322,7 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
                     "total_value": 0, "total_shares": 0,
                     "net_delta_shares": 0, "buy_shares": 0, "sell_shares": 0,
                     "net_delta_value": 0, "buy_value": 0, "sell_value": 0,
-                    "fund_count": 0,
+                    "fund_count": 0, "per_etf": {},
                 }
             stock_map[sc]["funds"].append(etf_name)
             stock_map[sc]["total_value"]      += val
@@ -1335,6 +1335,9 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
             stock_map[sc]["sell_value"]       += sell_v
             if cur_shares > 0:
                 stock_map[sc]["fund_count"]   += 1
+            stock_map[sc]["per_etf"][etf_code] = {
+                "en": etf_name, "s": cur_shares, "d": delta_s, "dv": delta_val, "w": row["weight"],
+            }
 
     # 依總持有估值排序；持有估值=0（僅1股掛號）排最後
     sorted_stocks = sorted(stock_map.items(),
@@ -1429,6 +1432,12 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
             "sbc": _sbc_save, "chg": price_changes.get(sc), "vr": _vr_save,
             "ts": tot_shares, "tv": tot_val, "fc": fund_count,
             "bv": sd["buy_value"], "sv": sd["sell_value"],
+            "etfs": [
+                {"ec": ec, "en": v["en"], "s": v["s"], "w": v["w"],
+                 "dl": (math.ceil(v["d"]/1000) if v["d"] >= 0 else -math.ceil(abs(v["d"])/1000)),
+                 "dv": v["dv"]}
+                for ec, v in sd.get("per_etf", {}).items()
+            ],
         })
 
         sname_safe = sd['name'].replace("'", "&#39;")
@@ -1463,6 +1472,8 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
             "total_buy": total_buy_all,
             "total_sell": total_sell_all,
             "stocks": summary_stocks,
+            "etfs": summary_etfs,
+            "changes": summary_changes,
         }, ensure_ascii=False), encoding="utf-8")
     except Exception as _e:
         print(f"  ⚠ ETF summary 存檔失敗：{_e}")
@@ -1568,6 +1579,61 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     # 預設排序：有變動的先（依 |delta_val| 降冪），無變動的排後（依 val 降冪）
     all_list.sort(key=lambda x: (0 if x["is_changed"] else 1, -abs(x["delta_val"] or 0), -x["val"]))
     change_count = sum(1 for x in all_list if x["is_changed"])
+
+    # ── 為歷史 summary 收集 ETF 級別資料 ────────────────────────────────
+    summary_etfs = []
+    for _ec, _res in etf_results.items():
+        _today_d   = _res["today"]
+        _hp        = _res["yesterday"] is not None
+        _nav       = _today_d.get("nav_total") or 0
+        _etf_holdings = []
+        _nbv = _sbv = 0.0
+        for _row in _res["changes"]:
+            _sc   = _row["code"]
+            _cs   = _row["shares"]
+            _val  = round(_row["weight"] / 100 * _nav) if (_nav and _cs > 0) else 0
+            _p    = (stock_data.get(_sc) or {}).get("price", 0) or (_val / _cs if _cs > 0 else 0)
+            _ds   = _row["delta_shares"] if _hp else 0
+            _dl   = (math.ceil(_ds/1000) if _ds >= 0 else -math.ceil(abs(_ds)/1000))
+            _dv   = round(_ds * _p) if (_p and _hp) else 0
+            _sbc  = round(_ds / (stock_data.get(_sc) or {}).get("issued", 0) * 100, 3) \
+                    if (_hp and _ds and (stock_data.get(_sc) or {}).get("issued")) else None
+            _chg  = price_changes.get(_sc)
+            if _dv > 0: _nbv += abs(_dv)
+            elif _dv < 0: _sbv += abs(_dv)
+            _etf_holdings.append({
+                "c": _sc, "n": _row["name"],
+                "s": _cs, "w": _row["weight"], "v": _val,
+                "dl": _dl, "dv": _dv, "sbc": _sbc, "chg": _chg,
+                "is_new": _row["is_new"], "is_rm": _row["is_removed"],
+                "changed": _hp and (_row["delta_shares"] != 0),
+                "hp": _hp,
+            })
+        summary_etfs.append({
+            "ec": _ec, "en": _today_d["etf_name"],
+            "nav": _nav, "date": _today_d.get("date", ""),
+            "nbv": _nbv, "sbv": _sbv, "hp": _hp,
+            "holdings": _etf_holdings,
+        })
+
+    # ── 為歷史 summary 收集 change_list ──────────────────────────────────
+    summary_changes = []
+    for _item in all_list:
+        _row  = _item["row"]
+        _sc   = _row["code"]
+        _ds   = _row["delta_shares"]
+        _dl   = math.ceil(_ds/1000) if _ds >= 0 else -math.ceil(abs(_ds)/1000)
+        _iss  = (stock_data.get(_sc) or {}).get("issued", 0)
+        _sbc  = round(_ds / _iss * 100, 3) if (_iss and _item["has_prev"] and _ds) else None
+        summary_changes.append({
+            "ec": _item["etf_code"], "en": _item["etf_name"],
+            "c": _sc, "n": _row["name"],
+            "w": _row["weight"], "s": _row["shares"], "v": _item["val"],
+            "dv": _item["delta_val"], "dl": _dl, "sbc": _sbc,
+            "chg": price_changes.get(_sc),
+            "is_new": _row["is_new"], "is_rm": _row["is_removed"],
+            "changed": _item["is_changed"], "hp": _item["has_prev"],
+        })
 
     change_rows = ""
     for item in all_list:
@@ -1830,16 +1896,21 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
         stale_badge = ""
 
     _dropdown_html = ""
-    if len(_avail_dates) > 1:
-        _opts = "".join(
-            f"<option value='{d['key']}'>{d['label']}</option>"
-            for d in _avail_dates
+    if _avail_dates:
+        _first_label = _avail_dates[0]["label"] if _avail_dates else ""
+        _dd_items = "".join(
+            '<li><a class="dropdown-item etf-date-item' + (' active' if i == 0 else '') +
+            '" href="#" data-key="' + d["key"] + '">' + d["label"] + '</a></li>'
+            for i, d in enumerate(_avail_dates)
         )
-        _dropdown_html = f"""
-<select id="etfDateSelect" class="form-select form-select-sm" style="width:auto;min-width:130px" onchange="etfSelectDate(this.value)">
-  <option value="latest">最新</option>
-  {_opts}
-</select>"""
+        _dropdown_html = (
+            '<div class="dropdown d-inline-block">'
+            '<button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">'
+            '<span id="etfDateLabel">' + _first_label + '</span>'
+            '</button>'
+            '<ul class="dropdown-menu">' + _dd_items + '</ul>'
+            '</div>'
+        )
 
     return f"""
 <div class="container-fluid px-3 py-2">
@@ -1858,96 +1929,370 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
 </div>
 <script>
 (function(){{
-  var AVAIL = {_dates_json};
-  function fmtAmt(v){{
-    if(v===null||v===undefined) return '-';
-    var abs=Math.abs(v), sign=v>0?'+':v<0?'-':'';
-    if(abs>=1e8) return sign+(abs/1e8).toFixed(2)+' 億';
-    return sign+(abs/1e4).toFixed(0)+' 萬';
-  }}
-  function fmtLots(v){{
-    if(v===null||v===undefined||v===0) return null;
-    return (v>0?'+':'')+v.toLocaleString();
-  }}
-  function fmtShares(v){{
-    return Math.ceil(v/1000).toLocaleString()+' 張';
-  }}
-  function fmtVal(v){{
-    if(!v||v<10000) return '-';
-    return (v/1e8).toFixed(2)+' 億';
-  }}
-  function cls(v){{return v>0?'pos':v<0?'neg':'';}}
+  var AVAIL={_dates_json};
+  var LIVE_KEY=AVAIL.length?AVAIL[0].key:null;
+  var S0=-999999999;
+  var _hData=null, _hDTs={{}};
+  var _hFundFilter=null, _hStockFilter=null, _hChangedOnly=true;
 
-  function renderHistory(data){{
-    var hp=data.has_prev, tb=data.total_buy||0, ts_=data.total_sell||0, net=tb-ts_;
-    var netCls=net<0?'color:#ff6b6b':'color:#4ecdc4', netSign=net>0?'+':net<0?'-':'';
-    var bar=hp?`<div style="background:#1a1a2e;color:#fff;display:flex;gap:0;border-bottom:1px solid #333" class="px-0">
-  <div style="flex:1;padding:10px 20px;border-right:1px solid #333"><span style="color:#aaa;font-size:.8rem">買進</span><span style="color:#4ecdc4;font-size:1.4rem;font-weight:700;margin-left:12px">${{(tb/1e8).toFixed(0)}} 億</span></div>
-  <div style="flex:1;padding:10px 20px;border-right:1px solid #333"><span style="color:#aaa;font-size:.8rem">賣出</span><span style="color:#ff6b6b;font-size:1.4rem;font-weight:700;margin-left:12px">${{(ts_/1e8).toFixed(0)}} 億</span></div>
-  <div style="flex:1;padding:10px 20px"><span style="color:#aaa;font-size:.8rem">買賣超</span><span style="${{netCls}};font-size:1.4rem;font-weight:700;margin-left:12px">${{netSign}}${{(Math.abs(net)/1e8).toFixed(0)}} 億</span></div>
-</div>`:'';
-    var rows='';
-    (data.stocks||[]).forEach(function(s){{
-      var ndvFmt=s.ndv?fmtAmt(s.ndv):hp?'0.00 億':'-';
-      var ndvCls=s.ndv?cls(s.ndv):(hp?'text-muted':'text-muted');
-      var ndlFmt=fmtLots(s.ndl); var ndlCls=ndlFmt?cls(s.ndl):'text-muted';
-      var sbcFmt=s.sbc!=null?(s.sbc>0?'+':'')+Math.abs(s.sbc).toFixed(3)+'%':hp?'0.000%':'-';
-      var sbcCls=s.sbc!=null?cls(s.sbc):'text-muted';
-      var chgFmt=s.chg!=null?(s.chg>0?'+':'')+s.chg.toFixed(2)+'%':'-';
-      var chgCls=s.chg!=null?cls(s.chg):'text-muted';
-      var vrFmt=s.vr!=null?(s.vr>0?'+':'')+Math.abs(s.vr).toFixed(2)+'%':hp?'0.00%':'-';
-      var vrCls=s.vr!=null?cls(s.vr):'text-muted';
-      var bvFmt=s.bv?(s.bv/1e8).toFixed(2)+' 億':'-';
-      var svFmt=s.sv?(s.sv/1e8).toFixed(2)+' 億':'-';
-      rows+=`<tr>
-        <td><b style="color:#4fc3f7">${{s.c}}</b> ${{s.n}}</td>
-        <td class="${{ndvCls}}">${{ndvFmt}}</td>
-        <td class="${{ndlCls}}">${{ndlFmt||'-'}}</td>
-        <td class="${{sbcCls}}">${{sbcFmt}}</td>
-        <td class="${{chgCls}}">${{chgFmt}}</td>
-        <td class="${{vrCls}}">${{vrFmt}}</td>
-        <td>${{fmtShares(s.ts)}}</td>
-        <td>${{fmtVal(s.tv)}}</td>
-        <td class="text-center">${{s.fc}}</td>
-        <td class="${{s.bv?'pos':'text-muted'}}">${{bvFmt}}</td>
-        <td class="${{s.sv?'neg':'text-muted'}}">${{s.sv?'-'+svFmt:'-'}}</td>
-      </tr>`;
+  // ── format helpers ──
+  function fA(v,hp){{
+    if(v===null||v===undefined||v===0) return hp?'0.00 億':'-';
+    var a=Math.abs(v),s=v>0?'+':'-';
+    return a>=1e8?s+(a/1e8).toFixed(2)+' 億':s+(a/1e4).toFixed(0)+' 萬';
+  }}
+  function fL(v){{return v?(v>0?'+':'')+v.toLocaleString():null;}}
+  function fS(v){{return Math.ceil(v/1000).toLocaleString()+' 張';}}
+  function fV(v){{return(!v||v<10000)?'-':(v/1e8).toFixed(2)+' 億';}}
+  function cl(v){{return v>0?'pos':v<0?'neg':'';}}
+  function fP(v,d){{return v!=null?(v>0?'+':'')+Math.abs(v).toFixed(d||2)+'%':null;}}
+
+  // ── destroy history DataTables ──
+  function _destroyHDTs(){{
+    Object.keys(_hDTs).forEach(function(id){{
+      if($.fn.DataTable.isDataTable('#'+id)){{
+        $('#'+id).DataTable().destroy();
+      }}
+      delete _hDTs[id];
     }});
-    return `<div class="card mb-3">
-  <div class="card-header px-3 py-2 fw-bold">股票總表<span class="text-muted fw-normal ms-2" style="font-size:.85rem">（歷史紀錄，不可互動）</span></div>
-  ${{bar}}
-  <div class="table-responsive">
-  <table class="table table-hover table-sm mb-0">
-    <thead><tr>
-      <th>標的</th><th>淨額</th><th>張數</th><th>股本比</th><th>漲跌%</th><th>量比</th>
-      <th>持有張</th><th>持有估值</th><th>基金</th><th>買進</th><th>賣出</th>
-    </tr></thead>
-    <tbody>${{rows}}</tbody>
-  </table></div></div>`;
   }}
 
-  window.etfSelectDate = function(key){{
-    if(key==='latest'){{
-      document.getElementById('etfCurrentView').style.display='';
-      document.getElementById('etfHistoryView').style.display='none';
-      document.getElementById('etfHistoryView').innerHTML='';
+  // ── init history DataTable ──
+  function _initDT(id, orderCol, colDefs){{
+    if(!$.fn.DataTable||!document.getElementById(id)) return;
+    var dt=$('#'+id).DataTable({{
+      paging:false, autoWidth:false,
+      order:[[orderCol,'desc']],
+      language:{{search:'搜尋：',info:'共 _TOTAL_ 筆',zeroRecords:'無資料'}},
+      columnDefs: colDefs||[],
+    }});
+    _hDTs[id]=dt;
+    return dt;
+  }}
+
+  // ── build summary bar ──
+  function _bar(tb,ts_,hp){{
+    if(!hp) return '';
+    var net=(tb||0)-(ts_||0),nc=net<0?'#ff6b6b':'#4ecdc4',ns=net>0?'+':net<0?'-':'';
+    return '<div style="background:#1a1a2e;color:#fff;display:flex;gap:0;border-bottom:1px solid #333" class="px-0">'+
+      '<div style="flex:1;padding:10px 20px;border-right:1px solid #333"><span style="color:#aaa;font-size:.8rem">買進</span>'+
+      '<span style="color:#4ecdc4;font-size:1.4rem;font-weight:700;margin-left:12px">'+((tb||0)/1e8).toFixed(0)+' 億</span></div>'+
+      '<div style="flex:1;padding:10px 20px;border-right:1px solid #333"><span style="color:#aaa;font-size:.8rem">賣出</span>'+
+      '<span style="color:#ff6b6b;font-size:1.4rem;font-weight:700;margin-left:12px">'+((ts_||0)/1e8).toFixed(0)+' 億</span></div>'+
+      '<div style="flex:1;padding:10px 20px"><span style="color:#aaa;font-size:.8rem">買賣超</span>'+
+      '<span style="color:'+nc+';font-size:1.4rem;font-weight:700;margin-left:12px">'+ns+(Math.abs(net)/1e8).toFixed(0)+' 億</span></div></div>';
+  }}
+
+  // ── build stock table HTML ──
+  function _buildStockRows(stocks,hp){{
+    return (stocks||[]).filter(function(s){{return s.ts>0;}}).map(function(s){{
+      var ndv=s.ndv||0, nl=s.ndl||0;
+      var ndvC=ndv?cl(ndv):'text-muted', ndvF=ndv?fA(ndv,hp):(hp?'0.00 億':'-'), ndvO=ndv||(hp?0:S0);
+      var nlF=fL(nl), nlC=nlF?cl(nl):'text-muted', nlO=nl||(hp?0:S0);
+      var sbcF=fP(s.sbc,3)||(hp?'0.000%':'-'), sbcC=s.sbc!=null?cl(s.sbc):'text-muted', sbcO=s.sbc!=null?s.sbc:(hp?0:S0);
+      var chgF=fP(s.chg,2)||'-', chgC=s.chg!=null?cl(s.chg):'text-muted', chgO=s.chg!=null?s.chg:S0;
+      var vrF=fP(s.vr,2)||(hp?'0.00%':'-'), vrC=s.vr!=null?cl(s.vr):'text-muted', vrO=s.vr!=null?s.vr:(hp?0:S0);
+      var bvO=s.bv||S0, svO=s.sv||S0;
+      var nn=s.n.replace(/'/g,'&#39;');
+      return '<tr style="cursor:pointer" onclick="etfHClickStock(\''+s.c+'\',\''+nn+'\')">'
+        +'<td data-order="'+s.c+'"><b style="color:#4fc3f7">'+s.c+'</b> '+s.n+'</td>'
+        +'<td class="'+ndvC+'" data-order="'+ndvO+'">'+ndvF+'</td>'
+        +'<td class="'+nlC+'" data-order="'+nlO+'">'+(nlF||'-')+'</td>'
+        +'<td class="'+sbcC+'" data-order="'+sbcO+'">'+sbcF+'</td>'
+        +'<td class="'+chgC+'" data-order="'+chgO+'">'+chgF+'</td>'
+        +'<td class="'+vrC+'" data-order="'+vrO+'">'+vrF+'</td>'
+        +'<td data-order="'+s.ts+'">'+fS(s.ts)+'</td>'
+        +'<td data-order="'+s.tv+'">'+fV(s.tv)+'</td>'
+        +'<td class="text-center" data-order="'+s.fc+'">'+s.fc+'</td>'
+        +'<td class="'+(s.bv?'pos':'text-muted')+'" data-order="'+bvO+'">'+(s.bv?(s.bv/1e8).toFixed(2)+' 億':'-')+'</td>'
+        +'<td class="'+(s.sv?'neg':'text-muted')+'" data-order="'+svO+'">'+(s.sv?'-'+(s.sv/1e8).toFixed(2)+' 億':'-')+'</td>'
+        +'</tr>';
+    }}).join('');
+  }}
+
+  // ── build change table HTML ──
+  function _buildChangeRows(changes){{
+    return (changes||[]).map(function(x){{
+      var tag=x.hp&&x.is_new?'<span class="badge bg-success ms-1">新增</span>'
+             :x.hp&&x.is_rm ?'<span class="badge bg-danger ms-1">移除</span>':'';
+      var dvF,dvC,dvO;
+      if(!x.hp||x.dv===null){{dvF='-';dvC='text-muted';dvO=S0;}}
+      else if(x.dv){{dvF=(x.dv>0?'+':'-')+(Math.abs(x.dv)/1e8).toFixed(2)+' 億';dvC=cl(x.dv);dvO=x.dv;}}
+      else{{dvF='0.00 億';dvC='text-muted';dvO=0;}}
+      var dlF,dlC,dlO;
+      if(!x.hp){{dlF='-';dlC='text-muted';dlO=S0;}}
+      else if(x.dl){{dlF=(x.dl>0?'+':'')+x.dl.toLocaleString();dlC=cl(x.dl);dlO=x.dl;}}
+      else{{dlF='0';dlC='text-muted';dlO=0;}}
+      var sbcF,sbcC,sbcO;
+      if(!x.sbc&&x.sbc!==0){{sbcF='-';sbcC='text-muted';sbcO=S0;}}
+      else{{sbcF=(x.sbc>0?'+':'')+Math.abs(x.sbc).toFixed(3)+'%';sbcC=cl(x.sbc);sbcO=x.sbc;}}
+      var chgF=x.chg!=null?(x.chg>0?'+':'')+x.chg.toFixed(2)+'%':'-';
+      var chgC=x.chg!=null?cl(x.chg):'text-muted', chgO=x.chg!=null?x.chg:S0;
+      return '<tr data-changed="'+(x.changed?1:0)+'" data-etf="'+x.ec+'" data-stock="'+x.c+'">'
+        +'<td data-search="'+x.ec+'"><small class="text-muted">'+x.ec+'</small> '+x.en+'</td>'
+        +'<td><b style="color:#4fc3f7">'+x.c+'</b> '+x.n+tag+'</td>'
+        +'<td data-order="'+x.w+'">'+x.w.toFixed(2)+'%</td>'
+        +'<td data-order="'+x.s+'">'+fS(x.s)+'</td>'
+        +'<td data-order="'+x.v+'">'+fV(x.v)+'</td>'
+        +'<td class="'+dvC+'" data-order="'+dvO+'">'+dvF+'</td>'
+        +'<td class="'+dlC+'" data-order="'+dlO+'">'+dlF+'</td>'
+        +'<td class="'+sbcC+'" data-order="'+sbcO+'">'+sbcF+'</td>'
+        +'<td class="'+chgC+'" data-order="'+chgO+'">'+chgF+'</td>'
+        +'</tr>';
+    }}).join('');
+  }}
+
+  // ── build fund table HTML ──
+  function _buildFundRows(etfs){{
+    return (etfs||[]).map(function(e){{
+      var net=e.nbv-e.sbv,ns=net>0?'+':net<0?'-':'',nc=net<0?'neg':'';
+      var nm=ns+(Math.abs(net)/1e8).toFixed(2)+' 億';
+      var buys=e.holdings.filter(function(h){{return h.dl>0;}}).sort(function(a,b){{return b.dl-a.dl;}});
+      var sells=e.holdings.filter(function(h){{return h.dl<0;}}).sort(function(a,b){{return Math.abs(b.dl)-Math.abs(a.dl);}});
+      function _fItem(h){{return '<b style="color:#4fc3f7">'+h.c+'</b> '+(h.dl>0?'+':'')+h.dl.toLocaleString()+'張';}}
+      function _trunc(arr){{
+        if(!arr.length) return '-';
+        var n=arr.length,items=n<=4?arr.map(_fItem):arr.slice(0,3).map(_fItem).concat(['等'+n+'檔']);
+        var lines=[];
+        for(var i=0;i<items.length;i+=2) lines.push(items.slice(i,i+2).join('<span style="color:#4a5568;margin:0 4px">·</span>'));
+        return lines.join('<br>');
+      }}
+      var chg=buys.length+sells.length, hol=e.holdings.filter(function(h){{return h.s>0;}}).length;
+      var prevDate=''; // fund date
+      var en2=e.en.replace(/'/g,'&#39;');
+      return '<tr style="cursor:pointer" onclick="etfHClickFund(\''+e.ec+'\',\''+en2+'\')">'
+        +'<td data-order="'+e.ec+'"><b>'+e.ec+'</b> '+e.en+'</td>'
+        +'<td data-order="'+net+'"><span class="'+nc+'">'+nm+'</span><br>'
+        +'<small class="fw-normal" style="font-size:.75rem;color:inherit">買+'+(e.nbv/1e8).toFixed(2)+'億 / 賣-'+(e.sbv/1e8).toFixed(2)+'億</small></td>'
+        +'<td style="white-space:normal">'+_trunc(buys)+'</td>'
+        +'<td class="'+(sells.length?'neg':'')+'" style="white-space:normal">'+_trunc(sells)+'</td>'
+        +'<td data-order="'+chg+'"><span style="font-size:1rem;font-weight:700">'+chg+'</span> <small class="text-muted">變動</small><br><small class="text-muted">'+hol+' 持股</small></td>'
+        +'<td data-order="'+e.nav+'">'+fV(e.nav)+'</td>'
+        +'<td data-order="'+e.date+'">'+e.date+'</td>'
+        +'<td></td>'
+        +'</tr>';
+    }}).join('');
+  }}
+
+  // ── render full history view ──
+  function _renderFull(data){{
+    var hp=data.has_prev, tb=data.total_buy||0, ts_=data.total_sell||0;
+    var chgCnt=(data.changes||[]).filter(function(x){{return x.changed;}}).length;
+    var totHol=(data.changes||[]).filter(function(x){{return x.s>0;}}).length;
+    var sRows=_buildStockRows(data.stocks,hp);
+    var cRows=_buildChangeRows(data.changes);
+    var fRows=_buildFundRows(data.etfs);
+    var actCnt=(data.stocks||[]).filter(function(s){{return s.ts>0;}}).length;
+    return '<div class="card mb-3" id="etfHStockCard">'
+      +'<div class="card-header px-3 py-2 fw-bold d-flex align-items-center flex-wrap gap-2">'
+      +'<span id="etfHStockTitle">股票總表</span>'
+      +'<small class="text-muted fw-normal">點股票，看哪些 ETF 持有</small>'
+      +'<span id="etfHStockCount" class="fw-normal text-muted" style="font-size:.85rem">共 '+actCnt+' 檔</span>'
+      +'<span id="etfHBreadcrumb" class="ms-auto text-muted d-none" style="font-size:.8rem">股票總表 → 持股明細 → 各基金買賣概況</span>'
+      +'</div>'
+      +_bar(tb,ts_,hp)
+      +'<div id="etfHStockFilterBar" class="px-3 pt-2 pb-1 border-bottom d-none">'
+      +'<div class="d-flex align-items-center gap-2">'
+      +'<input id="etfHStockSearch" class="form-control form-control-sm" style="max-width:160px" placeholder="股票代號" oninput="etfHOnSearch(this.value)">'
+      +'<button class="btn btn-sm btn-outline-secondary py-0" onclick="etfHClearStockFilter()">清除篩選</button>'
+      +'</div></div>'
+      +'<div class="table-responsive"><table class="table table-hover table-sm mb-0" id="etfHStockTable">'
+      +'<thead><tr><th>標的</th><th title="淨變動估金額" style="cursor:help">淨額</th>'
+      +'<th title="淨變動張數" style="cursor:help">張數</th>'
+      +'<th title="淨變動張數／已發行股數" style="cursor:help">股本比</th>'
+      +'<th title="當日漲跌幅" style="cursor:help">漲跌%</th>'
+      +'<th title="淨變動張數／當日成交量" style="cursor:help">量比</th>'
+      +'<th>持有張</th><th>持有估值</th>'
+      +'<th title="持有本股的基金數量" style="cursor:help">基金</th>'
+      +'<th title="買進估金額" style="cursor:help">買進</th>'
+      +'<th title="賣出估金額" style="cursor:help">賣出</th>'
+      +'</tr></thead><tbody>'+sRows+'</tbody></table></div></div>'
+
+      +'<div class="card mb-3" id="etfHChangeCard">'
+      +'<div class="card-header px-3 py-2 fw-bold d-flex align-items-center flex-wrap gap-2">'
+      +'<span id="etfHChangeTitle">本日變動持股明細</span>'
+      +'<span id="etfHChangeCount" class="fw-normal text-muted" style="font-size:.85rem">變動 '+chgCnt+' 筆 / 全部持股 '+totHol+' 筆</span>'
+      +'<span id="etfHFundChip" class="ms-1"></span>'
+      +'<span id="etfHStockChip" class="ms-1"></span>'
+      +'<div class="ms-auto d-flex gap-2">'
+      +'<button id="etfHClearFundBtn" class="btn btn-sm btn-outline-secondary py-0 d-none" onclick="etfHClearFund()">清除基金</button>'
+      +'<button id="etfHClearStockBtn" class="btn btn-sm btn-outline-secondary py-0 d-none" onclick="etfHClearStock()">清除股票</button>'
+      +'</div></div>'
+      +'<div class="px-3 pt-2 pb-1 border-bottom d-flex align-items-center gap-3">'
+      +'<button id="etfHChangedOnlyBtn" class="btn btn-sm btn-primary py-0 px-2" onclick="etfHToggleChanged()">本日有加減碼</button>'
+      +'<small id="etfHSortHint" class="text-muted">依變動估金額降冪排序；共 '+chgCnt+' 筆變動</small>'
+      +'</div>'
+      +'<div class="table-responsive"><table class="table table-hover table-sm mb-0" id="etfHChangeTable">'
+      +'<thead><tr><th>基金</th><th>股票</th><th>比例</th><th>張數</th><th>估市值</th>'
+      +'<th title="持股變動對應的估算金額" style="cursor:help">變動估金額</th>'
+      +'<th title="變動張數" style="cursor:help">△張</th>'
+      +'<th title="變動張數／已發行股數" style="cursor:help">△股本比</th>'
+      +'<th title="當日漲跌幅" style="cursor:help">日漲跌</th>'
+      +'</tr></thead><tbody>'+cRows+'</tbody></table></div></div>'
+
+      +'<div class="card mb-3" id="etfHFundCard">'
+      +'<div class="card-header px-3 py-2 fw-bold">各基金買賣概況　'+(data.etfs||[]).length+' 檔</div>'
+      +'<div class="table-responsive"><table class="table table-hover table-sm mb-0" id="etfHFundTable">'
+      +'<thead><tr><th>基金</th><th>淨買賣</th><th>加碼</th><th>減碼</th><th>變動</th><th>規模</th><th>日期</th><th></th>'
+      +'</tr></thead><tbody>'+fRows+'</tbody></table></div></div>';
+  }}
+
+  // ── init all history DataTables + custom filter ──
+  function _initAllDTs(){{
+    _destroyHDTs();
+    _hChangedOnly=true; _hFundFilter=null; _hStockFilter=null;
+
+    // change table: custom filter for changedOnly + fund/stock
+    if($.fn.DataTable){{
+      $.fn.dataTable.ext.search=$.fn.dataTable.ext.search.filter(function(f){{
+        return f._etfH!==true;
+      }});
+      var hFilter=function(s,d,idx,row){{
+        var $tr=$(row);
+        if(_hFundFilter && $tr.attr('data-etf')!==_hFundFilter) return false;
+        if(_hStockFilter && $tr.attr('data-stock')!==_hStockFilter) return false;
+        if(_hChangedOnly && !_hFundFilter && !_hStockFilter && $tr.attr('data-changed')!=='1') return false;
+        return true;
+      }};
+      hFilter._etfH=true;
+      $.fn.dataTable.ext.search.push(hFilter);
+    }}
+
+    _initDT('etfHStockTable',1,[
+      {{targets:[1,2,3,4,5,6,7,8,9,10],type:'num'}},
+      {{targets:0,width:'110px'}},
+    ]);
+    _initDT('etfHChangeTable',5,[
+      {{targets:[2,3,4,5,6,7,8],type:'num'}},
+    ]);
+    _initDT('etfHFundTable',1,[
+      {{targets:[1,4,5,6],type:'num'}},
+    ]);
+  }}
+
+  // ── history filter functions ──
+  window.etfHClickStock=function(code,name){{
+    _hStockFilter=code; _hFundFilter=null;
+    if(_hDTs['etfHStockTable']) _hDTs['etfHStockTable'].search(code).draw();
+    $('#etfHStockFilterBar').removeClass('d-none');
+    $('#etfHStockSearch').val(code);
+    $('#etfHBreadcrumb').removeClass('d-none');
+    if(_hDTs['etfHChangeTable']){{
+      _hDTs['etfHChangeTable'].order([[3,'desc']]).draw();
+    }}
+    $('#etfHChangeTitle').text(code+' '+name+'：主動 ETF 持股');
+    $('#etfHStockChip').html('<span class="badge bg-success">'+code+' '+name+'</span>');
+    $('#etfHFundChip').html('');
+    $('#etfHClearStockBtn').removeClass('d-none');
+    $('#etfHClearFundBtn').addClass('d-none');
+    $('#etfHChangedOnlyBtn').addClass('d-none');
+    $('#etfHSortHint').text('依張數降冪排序');
+    var $card=$('#etfHChangeCard');
+    if($card.length) $card[0].scrollIntoView({{behavior:'smooth',block:'start'}});
+  }};
+
+  window.etfHClickFund=function(ec,en){{
+    _hFundFilter=ec; _hStockFilter=null;
+    if(_hDTs['etfHChangeTable']) _hDTs['etfHChangeTable'].order([[2,'desc']]).draw();
+    $('#etfHChangeTitle').text('持股明細');
+    var vis=_hDTs['etfHChangeTable']?_hDTs['etfHChangeTable'].rows({{search:'applied'}}).count():0;
+    var tot=_hDTs['etfHChangeTable']?_hDTs['etfHChangeTable'].rows().count():0;
+    $('#etfHChangeCount').html('<span class="text-primary fw-bold">'+ec+' '+en+'</span> 符合篩選 '+vis+' 筆 / 全部 '+tot+' 筆');
+    $('#etfHFundChip').html('<span class="badge bg-primary">'+ec+' '+en+'</span>');
+    $('#etfHClearFundBtn').removeClass('d-none');
+    $('#etfHChangedOnlyBtn').addClass('d-none');
+    $('#etfHSortHint').text('依比例降冪排序；'+en+' 全部持股');
+    var $card=$('#etfHChangeCard');
+    if($card.length) $card[0].scrollIntoView({{behavior:'smooth',block:'start'}});
+  }};
+
+  window.etfHClearFund=function(){{
+    _hFundFilter=null;
+    if(_hDTs['etfHChangeTable']) _hDTs['etfHChangeTable'].order([[5,'desc']]).draw();
+    var chg=0,tot=_hDTs['etfHChangeTable']?_hDTs['etfHChangeTable'].rows().count():0;
+    if(_hDTs['etfHChangeTable']) _hDTs['etfHChangeTable'].rows().every(function(){{if($(this.node()).attr('data-changed')==='1') chg++;}});
+    $('#etfHChangeTitle').text('本日變動持股明細');
+    $('#etfHChangeCount').text('變動 '+chg+' 筆 / 全部持股 '+tot+' 筆');
+    $('#etfHFundChip').html('');
+    $('#etfHClearFundBtn').addClass('d-none');
+    $('#etfHChangedOnlyBtn').removeClass('d-none');
+    $('#etfHSortHint').text('依變動估金額降冪排序；共 '+chg+' 筆變動');
+  }};
+
+  window.etfHClearStock=function(){{
+    _hStockFilter=null;
+    etfHClearStockFilter();
+    if(_hDTs['etfHChangeTable']) _hDTs['etfHChangeTable'].order([[5,'desc']]).draw();
+    var chg=0,tot=_hDTs['etfHChangeTable']?_hDTs['etfHChangeTable'].rows().count():0;
+    if(_hDTs['etfHChangeTable']) _hDTs['etfHChangeTable'].rows().every(function(){{if($(this.node()).attr('data-changed')==='1') chg++;}});
+    $('#etfHChangeTitle').text('本日變動持股明細');
+    $('#etfHChangeCount').text('變動 '+chg+' 筆 / 全部持股 '+tot+' 筆');
+    $('#etfHStockChip').html('');
+    $('#etfHClearStockBtn').addClass('d-none');
+    $('#etfHChangedOnlyBtn').removeClass('d-none');
+    $('#etfHSortHint').text('依變動估金額降冪排序；共 '+chg+' 筆變動');
+  }};
+
+  window.etfHOnSearch=function(val){{
+    if(!_hDTs['etfHStockTable']) return;
+    _hDTs['etfHStockTable'].search(val).draw();
+    var m=_hDTs['etfHStockTable'].rows({{search:'applied'}}).count();
+    var t=_hDTs['etfHStockTable'].rows().count();
+    $('#etfHStockCount').text('符合篩選 '+m+' 檔 / 全部 '+t+' 檔');
+  }};
+
+  window.etfHClearStockFilter=function(){{
+    if(_hDTs['etfHStockTable']){{_hDTs['etfHStockTable'].search('').draw();}}
+    $('#etfHStockFilterBar').addClass('d-none');
+    $('#etfHStockSearch').val('');
+    $('#etfHBreadcrumb').addClass('d-none');
+    var t=_hDTs['etfHStockTable']?_hDTs['etfHStockTable'].rows().count():'';
+    $('#etfHStockCount').text('共 '+t+' 檔');
+  }};
+
+  window.etfHToggleChanged=function(){{
+    _hChangedOnly=!_hChangedOnly;
+    var $b=$('#etfHChangedOnlyBtn');
+    $b.toggleClass('btn-primary',_hChangedOnly).toggleClass('btn-outline-primary',!_hChangedOnly);
+    if(_hDTs['etfHChangeTable']) _hDTs['etfHChangeTable'].draw();
+  }};
+
+  // ── date dropdown ──
+  $(document).on('click','.etf-date-item',function(e){{
+    e.preventDefault();
+    var key=$(this).data('key');
+    $('.etf-date-item').removeClass('active');
+    $(this).addClass('active');
+    $('#etfDateLabel').text($(this).text());
+    etfSelectDate(key);
+  }});
+
+  window.etfSelectDate=function(key){{
+    var isLive=(key===LIVE_KEY);
+    $('#etfCurrentView').toggle(isLive);
+    var hv=document.getElementById('etfHistoryView');
+    if(isLive){{
+      _destroyHDTs();
+      // remove custom filter
+      $.fn.dataTable.ext.search=$.fn.dataTable.ext.search.filter(function(f){{return f._etfH!==true;}});
+      hv.style.display='none'; hv.innerHTML='';
       return;
     }}
-    var hv=document.getElementById('etfHistoryView');
     hv.style.display='';
     hv.innerHTML='<div class="text-muted p-3">載入中…</div>';
-    document.getElementById('etfCurrentView').style.display='none';
     fetch('etf_data/summary_'+key+'.json?_='+Date.now())
-      .then(function(r){{if(!r.ok)throw new Error(r.status);return r.json();}} )
+      .then(function(r){{if(!r.ok)throw new Error(r.status);return r.json();}})
       .then(function(data){{
+        _hData=data;
         var label=key.slice(0,3)+'/'+key.slice(3,5)+'/'+key.slice(5,7);
-        hv.innerHTML='<div class="alert alert-secondary py-1 px-3 mb-2" style="font-size:.85rem">歷史紀錄：'+label+'</div>'+renderHistory(data);
+        hv.innerHTML='<div class="alert alert-secondary py-1 px-3 mb-2" style="font-size:.85rem">歷史紀錄：'+label+'</div>'+_renderFull(data);
+        setTimeout(function(){{_initAllDTs();}},0);
       }})
       .catch(function(){{hv.innerHTML='<div class="text-danger p-3">載入失敗，此日期無資料</div>';}});
   }};
-  // 預設選最新
-  var sel=document.getElementById('etfDateSelect');
-  if(sel) sel.value='latest';
+
+  // 預設顯示最新（第一項）
+  if(AVAIL.length>0) etfSelectDate(AVAIL[0].key);
 }})();
 </script>"""
 
