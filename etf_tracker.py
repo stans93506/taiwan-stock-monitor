@@ -2263,8 +2263,8 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     var hv=document.getElementById('etfHistoryView');
     if(isLive){{
       _destroyHDTs();
-      // remove custom filter
-      $.fn.dataTable.ext.search=$.fn.dataTable.ext.search.filter(function(f){{return f._etfH!==true;}});
+      if(typeof $!=='undefined'&&$.fn&&$.fn.dataTable)
+        $.fn.dataTable.ext.search=$.fn.dataTable.ext.search.filter(function(f){{return f._etfH!==true;}});
       hv.style.display='none'; hv.innerHTML='';
       return;
     }}
