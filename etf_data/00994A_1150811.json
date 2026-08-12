@@ -133,15 +133,15 @@
       "weight": 1.07
     },
     {
-      "code": "2303",
-      "name": "聯電",
-      "shares": 430000,
-      "weight": 1.03
-    },
-    {
       "code": "3653",
       "name": "健策",
       "shares": 13000,
+      "weight": 1.03
+    },
+    {
+      "code": "2303",
+      "name": "聯電",
+      "shares": 430000,
       "weight": 1.03
     },
     {
@@ -211,15 +211,15 @@
       "weight": 0.05
     },
     {
-      "code": "2449",
-      "name": "京元電子",
-      "shares": 4000,
-      "weight": 0.02
-    },
-    {
       "code": "2404",
       "name": "漢唐",
       "shares": 1000,
+      "weight": 0.02
+    },
+    {
+      "code": "2449",
+      "name": "京元電子",
+      "shares": 4000,
       "weight": 0.02
     },
     {
