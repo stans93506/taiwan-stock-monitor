@@ -1711,7 +1711,8 @@ def fetch_prev_quarter_t164sb04(df_qtr: pd.DataFrame) -> dict:
             other_r = round((pretax - oper) / abs(pretax) * 100, 2)
         if gross_r is None and oper_r is None and eps is None:
             return {}
-        return {"EPS": eps, "毛利率": gross_r, "營益率": oper_r, "業外%": other_r}
+        return {"EPS": eps, "毛利率": gross_r, "營益率": oper_r, "業外%": other_r,
+                "營收": rev, "毛利額": gross, "營業利益額": oper, "稅前淨利額": pretax}
 
     def _fetch_t163sb15(code: str) -> str:
         """查 t163sb15；若回傳子公司列表頁，自動二次 POST 取母公司資料。"""
@@ -1745,11 +1746,15 @@ def fetch_prev_quarter_t164sb04(df_qtr: pd.DataFrame) -> dict:
             d = _parse(html, prev_qtr)
             if d:
                 prev_data[code] = {
-                    "上季季度":  prev_label,
-                    "上季EPS":   d.get("EPS"),
-                    "上季毛利率": d.get("毛利率"),
-                    "上季營益率": d.get("營益率"),
-                    "上季業外%": d.get("業外%"),
+                    "上季季度":    prev_label,
+                    "上季EPS":     d.get("EPS"),
+                    "上季毛利率":  d.get("毛利率"),
+                    "上季營益率":  d.get("營益率"),
+                    "上季業外%":   d.get("業外%"),
+                    "上季營收":    d.get("營收"),
+                    "上季毛利":    d.get("毛利額"),
+                    "上季營業利益": d.get("營業利益額"),
+                    "上季稅前淨利": d.get("稅前淨利額"),
                 }
                 ok += 1
         except Exception:
@@ -1829,11 +1834,15 @@ def _build_prev_from_qtr(df_all_qtr: pd.DataFrame) -> dict:
         if eps is None:
             continue  # 無有效 EPS → 不放入，讓 t163sb15 補
         result[code] = {
-            "上季季度":   target,
-            "上季EPS":    eps,
-            "上季毛利率": _val(p, "毛利率"),
-            "上季營益率": _val(p, "營益率"),
-            "上季業外%":  _val(p, "業外%"),
+            "上季季度":    target,
+            "上季EPS":     eps,
+            "上季毛利率":  _val(p, "毛利率"),
+            "上季營益率":  _val(p, "營益率"),
+            "上季業外%":   _val(p, "業外%"),
+            "上季營收":    _val(p, "營業收入"),
+            "上季毛利":    _val(p, "毛利"),
+            "上季營業利益": _val(p, "營業利益"),
+            "上季稅前淨利": _val(p, "稅前淨利"),
         }
     return result
 
@@ -2756,8 +2765,46 @@ def build_qtr_row(row, prev: dict = None):
     group = "0" if after else "1"
     p = prev or {}
 
+    # 季度判斷與單季 EPS
+    raw_eps  = row.get("EPS")
+    prev_eps = p.get("上季EPS")
+    qtr_str  = str(row.get("季度", ""))
+    is_q1    = qtr_str.upper().endswith("Q1") or qtr_str.endswith("1")
+    if raw_eps is not None and prev_eps is not None and not is_q1:
+        adj_eps = round(raw_eps - prev_eps, 2)
+    else:
+        adj_eps = raw_eps
+
+    # Q2+ 累計→單季率換算：若 prev_data 有 Q1 原始絕對值，以 H1-Q1 算單季率
+    gross_r = row.get("毛利率")
+    oper_r  = row.get("營益率")
+    other_r = row.get("業外%")
+    if not is_q1:
+        h1_rev    = row.get("營業收入")
+        h1_gross  = row.get("毛利")
+        h1_oper   = row.get("營業利益")
+        h1_pretax = row.get("稅前淨利")
+        q1_rev    = p.get("上季營收")
+        q1_gross  = p.get("上季毛利")
+        q1_oper   = p.get("上季營業利益")
+        q1_pretax = p.get("上季稅前淨利")
+        if h1_rev is not None and q1_rev is not None:
+            sa_rev   = h1_rev - q1_rev
+            sa_gross = (h1_gross - q1_gross) if h1_gross is not None and q1_gross is not None else None
+            sa_oper  = (h1_oper  - q1_oper)  if h1_oper  is not None and q1_oper  is not None else None
+            if sa_rev != 0:
+                if sa_gross is not None:
+                    gross_r = round(sa_gross / sa_rev * 100, 2)
+                if sa_oper is not None:
+                    oper_r = round(sa_oper / sa_rev * 100, 2)
+            if h1_pretax is not None and q1_pretax is not None and sa_oper is not None:
+                sa_pretax = h1_pretax - q1_pretax
+                if sa_pretax != 0:
+                    other_r = round((sa_pretax - sa_oper) / abs(sa_pretax) * 100, 2)
+
     # AI 評分欄（文字上色，無背景）
-    score = calc_ai_score(dict(row), p)
+    _ai_row = dict(row) | {"毛利率": gross_r, "營益率": oper_r, "業外%": other_r}
+    score = calc_ai_score(_ai_row, p)
     if score is None:
         ai_cell = "<td>-</td>"
     else:
@@ -2812,16 +2859,6 @@ def build_qtr_row(row, prev: dict = None):
         sign = "+" if v >= 0 else ""
         return f"<td style='color:#6b7280'>{sign}{v:.2f}%</td>"
 
-    # 單季 EPS：Q2/Q3/Q4 公告為累計值，需扣掉上季累計才是單季
-    raw_eps  = row.get("EPS")
-    prev_eps = p.get("上季EPS")
-    qtr_str  = str(row.get("季度", ""))
-    is_q1    = qtr_str.upper().endswith("Q1") or qtr_str.endswith("1")
-    if raw_eps is not None and prev_eps is not None and not is_q1:
-        adj_eps = round(raw_eps - prev_eps, 2)
-    else:
-        adj_eps = raw_eps
-
     # 比較用上季數值（業外%越低越好）
     prev_gross  = p.get("上季毛利率")
     prev_oper   = p.get("上季營益率")
@@ -2839,9 +2876,9 @@ def build_qtr_row(row, prev: dict = None):
         + ai_cell
         + f"<td>{row.get('季度','')}</td>"
         + _cmp_eps(adj_eps, prev_adj_eps)
-        + _cmp_pct(row.get("毛利率"), prev_gross)
-        + _cmp_pct(row.get("營益率"), prev_oper)
-        + _cmp_pct(row.get("業外%"), prev_nonop, lower_better=True)
+        + _cmp_pct(gross_r, prev_gross)
+        + _cmp_pct(oper_r, prev_oper)
+        + _cmp_pct(other_r, prev_nonop, lower_better=True)
         + f"<td class='sep-col'>{p.get('上季季度','')}</td>"
         + _prev_num(p.get("上季EPS"))
         + _prev_pct(p.get("上季毛利率"))
@@ -5324,11 +5361,19 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             _pr_gross  = _dv(_pr, "毛利")
             _pr_oper   = _dv(_pr, "營業利益")
             _pr_pretax = _dv(_pr, "稅前淨利")
+            # 若 prev_full_lookup 無Q1，從 prev_data_cache 取原始絕對值
+            if not _pr and not _is_q1:
+                if _pv.get("上季營收") is not None:
+                    _pr_rev    = _pv.get("上季營收")
+                    _pr_gross  = _pv.get("上季毛利")
+                    _pr_oper   = _pv.get("上季營業利益")
+                    _pr_pretax = _pv.get("上季稅前淨利")
 
             def _sq(c, p):
                 return round(float(c) - float(p), 0) if (c is not None and p is not None) else c
 
-            if not _is_q1 and _pr:
+            _has_q1_amounts = _pr_rev is not None
+            if not _is_q1 and _has_q1_amounts:
                 _curr_rev    = _sq(_r_rev,    _pr_rev)
                 _curr_gross  = _sq(_r_gross,  _pr_gross)
                 _curr_oper   = _sq(_r_oper,   _pr_oper)
@@ -5340,6 +5385,19 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                 _curr_oper   = _r_oper
                 _curr_pretax = _r_pretax
                 _cum_label   = "" if _is_q1 else "累計"
+
+            # 從單季絕對值重算比率（Q1 或已扣成單季者均適用）
+            def _safe_r(numer, denom):
+                return round(float(numer) / float(denom) * 100, 2) if (
+                    numer is not None and denom is not None and float(denom) != 0) else None
+            _curr_gr = _safe_r(_curr_gross, _curr_rev)
+            _curr_or = _safe_r(_curr_oper,  _curr_rev)
+            _curr_xr = (round((float(_curr_pretax) - float(_curr_oper)) / abs(float(_curr_pretax)) * 100, 2)
+                        if _curr_pretax is not None and _curr_oper is not None and _curr_pretax != 0 else None)
+            # fallback：無法算單季率時沿用累計率
+            if _curr_gr is None: _curr_gr = _dv(_r, "毛利率")
+            if _curr_or is None: _curr_or = _dv(_r, "營益率")
+            if _curr_xr is None: _curr_xr = _dv(_r, "業外%")
 
             _curr_other  = (round(float(_curr_pretax) - float(_curr_oper), 0)
                             if _curr_pretax is not None and _curr_oper is not None else None)
@@ -5361,9 +5419,9 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                     "oper":   _curr_oper,
                     "pretax": _curr_pretax,
                     "other":  _curr_other,
-                    "gr":     _dv(_r, "毛利率"),
-                    "or_":    _dv(_r, "營益率"),
-                    "xr":     _dv(_r, "業外%"),
+                    "gr":     _curr_gr,
+                    "or_":    _curr_or,
+                    "xr":     _curr_xr,
                 },
                 "prev": {
                     "eps":    _pv.get("上季EPS") if _pv.get("上季EPS") is not None else _prev_eps_pr,
@@ -7059,9 +7117,11 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
     if df_monthly is not None and not df_monthly.empty:
         all_needed_codes |= set(df_monthly["股票代碼"].astype(str).str.strip().unique())
 
-    # EPS=None 視同缺漏 → 不跑 t21sc03 CSV（只有營收，無 EPS），直接用 t163sb15
+    # EPS=None 或缺少原始金額欄位（舊 cache 無 "上季營收"）→ 重查 t163sb15
     missing_codes = [c for c in all_needed_codes
-                     if c not in prev_data or prev_data[c].get("上季EPS") is None]
+                     if c not in prev_data
+                     or prev_data[c].get("上季EPS") is None
+                     or prev_data[c].get("上季營收") is None]
 
     curr_supp: dict = {}
     if missing_codes:
@@ -7072,6 +7132,42 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         print(f" 補到 {len(new_prev)} 家，完成")
         save_prev_data_cache(_prev_label, prev_data)
         print(f"  prev_data 共 {len(prev_data)} 家（cache 已更新）")
+
+    # 月營收補算：t163sb15 取不到原始金額時，從 rev_hist_cache 月加總推算
+    def _fill_rev_from_hist_inline(pdata: dict, rhist: dict) -> int:
+        filled = 0
+        for _c, _p in pdata.items():
+            if _p.get("上季營收") is not None:
+                continue
+            _season = str(_p.get("上季季度", ""))
+            if not _season or "Q" not in _season:
+                continue
+            try:
+                _yr_s, _q_s = _season.split("Q")
+                _yr, _q = int(_yr_s), int(_q_s)
+            except Exception:
+                continue
+            _months = list(range((_q - 1) * 3 + 1, _q * 3 + 1))
+            _ym_keys = [f"{_yr:03d}{_m:02d}" for _m in _months]
+            _hist = rhist.get(_c, {}).get("data", [])
+            _ym_map = {str(_d.get("ym", "")): _d.get("r") for _d in _hist}
+            _rev_sum, _ok = 0.0, True
+            for _ym in _ym_keys:
+                _r = _ym_map.get(_ym)
+                if _r is None:
+                    _ok = False; break
+                _rev_sum += float(_r)
+            if not _ok or _rev_sum == 0:
+                continue
+            _p["上季營收"] = round(_rev_sum, 0)
+            _gr = _p.get("上季毛利率")
+            _or = _p.get("上季營益率")
+            if _gr is not None:
+                _p["上季毛利"] = round(_rev_sum * _gr / 100, 0)
+            if _or is not None:
+                _p["上季營業利益"] = round(_rev_sum * _or / 100, 0)
+            filled += 1
+        return filled
 
     # curr_supp（本季補充）+ _q164_prev（上季 CSV，供月自結補查）
     # 合併季報與月自結代碼，讓上季 CSV 同時涵蓋兩者
@@ -7235,6 +7331,11 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                 _code_market[_c] = _m
     _rev_hist = ensure_rev_hist(_code_market)
 
+    # 月營收補算：填充仍缺 上季營收 的公司（t163sb15 失敗備案）
+    _hist_filled = _fill_rev_from_hist_inline(prev_data, _rev_hist)
+    if _hist_filled:
+        print(f"  月營收補算：{_hist_filled} 家的上季金額已從月加總推估")
+
     _news_date_str = (news_fetch_time or datetime.now()).strftime("%Y/%m/%d %H:%M 更新")
     _rev_archive = load_rev_archive()
     html = generate_html(df_rev, df_qtr, roc_year, month, prev_data, df_trs, df_monthly,
@@ -7248,6 +7349,10 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          rev_archive=_rev_archive,
                          qtr_history=_cqdata)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        f.write(html)
+    # 同步寫一份 index.html 供 HTTP server 使用（避免 bat 需要含中文的 copy 指令）
+    index_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
+    with open(index_file, "w", encoding="utf-8") as f:
         f.write(html)
 
     print(f"✅ 存至：{OUTPUT_FILE}")
