@@ -1989,8 +1989,8 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
       var chgF=fP(s.chg,2)||'-', chgC=s.chg!=null?cl(s.chg):'text-muted', chgO=s.chg!=null?s.chg:S0;
       var vrF=fP(s.vr,2)||(hp?'0.00%':'-'), vrC=s.vr!=null?cl(s.vr):'text-muted', vrO=s.vr!=null?s.vr:(hp?0:S0);
       var bvO=s.bv||S0, svO=s.sv||S0;
-      var nn=s.n.replace(/'/g,'&#39;');
-      return '<tr style="cursor:pointer" onclick="etfHClickStock(\''+s.c+'\',\''+nn+'\')">'
+      var nn=s.n.replace(/"/g,'&quot;');
+      return '<tr style="cursor:pointer" onclick="etfHClickStock(&quot;'+s.c+'&quot;,&quot;'+nn+'&quot;)">'
         +'<td data-order="'+s.c+'"><b style="color:#4fc3f7">'+s.c+'</b> '+s.n+'</td>'
         +'<td class="'+ndvC+'" data-order="'+ndvO+'">'+ndvF+'</td>'
         +'<td class="'+nlC+'" data-order="'+nlO+'">'+(nlF||'-')+'</td>'
@@ -2055,8 +2055,8 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
       }}
       var chg=buys.length+sells.length, hol=e.holdings.filter(function(h){{return h.s>0;}}).length;
       var prevDate=''; // fund date
-      var en2=e.en.replace(/'/g,'&#39;');
-      return '<tr style="cursor:pointer" onclick="etfHClickFund(\''+e.ec+'\',\''+en2+'\')">'
+      var en2=e.en.replace(/"/g,'&quot;');
+      return '<tr style="cursor:pointer" onclick="etfHClickFund(&quot;'+e.ec+'&quot;,&quot;'+en2+'&quot;)">'
         +'<td data-order="'+e.ec+'"><b>'+e.ec+'</b> '+e.en+'</td>'
         +'<td data-order="'+net+'"><span class="'+nc+'">'+nm+'</span><br>'
         +'<small class="fw-normal" style="font-size:.75rem;color:inherit">買+'+(e.nbv/1e8).toFixed(2)+'億 / 賣-'+(e.sbv/1e8).toFixed(2)+'億</small></td>'
