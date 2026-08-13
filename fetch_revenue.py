@@ -1552,6 +1552,26 @@ def save_spo_cache(df_all: pd.DataFrame, existing: list) -> None:
             existing_map[k] = nr
             order.append(k)
 
+    # 對 cache 裡「有原文但股數為 null」的記錄重新解析（補救新 regex 上線前的舊資料）
+    _reparse_cnt = 0
+    for er in existing_map.values():
+        if not _missing(er.get("增資股數")):
+            continue
+        for ann in (er.get("公告列表") or []):
+            raw = ann.get("原文", "")
+            if not raw:
+                continue
+            _reparsed = _parse_spo_detail(raw)
+            _new_s = _reparsed.get("增資股數")
+            _new_m = _reparsed.get("增資上限股數")
+            if not _missing(_new_s):
+                er["增資股數"] = _new_s
+                er["增資上限股數"] = _new_m or _new_s
+                _reparse_cnt += 1
+                break
+    if _reparse_cnt:
+        print(f"  [SPO重解析] 補齊 {_reparse_cnt} 筆空白股數")
+
     deduped = [existing_map[k] for k in order]
     try:
         with open(SPO_CACHE_FILE, "w", encoding="utf-8") as f:
