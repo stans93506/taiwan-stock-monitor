@@ -1463,13 +1463,6 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     net_all        = total_buy_all - total_sell_all
 
 
-    # 掃描可用歷史日期（最近 30 天）
-    _avail_dates = []
-    for _p in sorted(DATA_DIR.glob("summary_*.json"), reverse=True):
-        _dp = _p.stem[len("summary_"):]
-        if len(_dp) == 7 and _dp.isdigit():
-            _avail_dates.append({"key": _dp, "label": f"{_dp[:3]}/{_dp[3:5]}/{_dp[5:7]}"})
-    _dates_json = json.dumps(_avail_dates, ensure_ascii=False)
     net_all_cls    = "color:#ff6b6b" if net_all < 0 else "color:#4ecdc4"
     net_all_sign   = "+" if net_all > 0 else ("-" if net_all < 0 else "")
     summary_bar = f"""
@@ -1635,6 +1628,14 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
         }, ensure_ascii=False), encoding="utf-8")
     except Exception as _e:
         print(f"  ⚠ ETF summary 存檔失敗：{_e}")
+
+    # 掃描可用歷史日期（存檔後再掃，才包含今天）
+    _avail_dates = []
+    for _p in sorted(DATA_DIR.glob("summary_*.json"), reverse=True):
+        _dp = _p.stem[len("summary_"):]
+        if len(_dp) == 7 and _dp.isdigit():
+            _avail_dates.append({"key": _dp, "label": f"{_dp[:3]}/{_dp[3:5]}/{_dp[5:7]}"})
+    _dates_json = json.dumps(_avail_dates, ensure_ascii=False)
 
     change_rows = ""
     for item in all_list:
@@ -2146,10 +2147,11 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
       }});
       var hFilter=function(s,d,idx,row){{
         if(!s.nTable||s.nTable.id!=='etfHChangeTable') return true;
-        var $tr=$(row);
-        if(_hFundFilter && $tr.attr('data-etf')!==_hFundFilter) return false;
-        if(_hStockFilter && $tr.attr('data-stock')!==_hStockFilter) return false;
-        if(_hChangedOnly && !_hFundFilter && !_hStockFilter && $tr.attr('data-changed')!=='1') return false;
+        var nTr=s.aoData&&s.aoData[idx]?s.aoData[idx].nTr:null;
+        var $tr=nTr?$(nTr):null;
+        if(_hFundFilter && (!$tr||$tr.attr('data-etf')!==_hFundFilter)) return false;
+        if(_hStockFilter && (!$tr||$tr.attr('data-stock')!==_hStockFilter)) return false;
+        if(_hChangedOnly && !_hFundFilter && !_hStockFilter && (!$tr||$tr.attr('data-changed')!=='1')) return false;
         return true;
       }};
       hFilter._etfH=true;
