@@ -3534,5 +3534,16 @@
     "oper": 306276.0,
     "pretax": 304084.0,
     "eps": 2.35
+<<<<<<< Updated upstream
+=======
+  },
+  "4533": {
+    "quarter": "115Q2",
+    "rev": 1905868.0,
+    "gross": 411747.0,
+    "oper": -48739.0,
+    "pretax": 28084.0,
+    "eps": 0.13
+>>>>>>> Stashed changes
   }
 }
