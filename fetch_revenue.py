@@ -95,6 +95,7 @@ QTR_ARCHIVE_SEASONS = 1   # 保留最近 N 個封存季度（不含當季）
 EVENT_CACHE_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "event_cache.json")
 HIST_PRICE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hist_price_cache.json")
 NEWS_TS_FILE       = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_fetch_ts.json")
+NEWS_CONTENT_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_content_cache.json")
 REV_CACHE_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rev_cache.json")
 REV_ARCHIVE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rev_archive.json")
 REV_ARCHIVE_MONTHS  = 2   # 保留最近 N 個月封存
@@ -6154,7 +6155,7 @@ def fetch_t05st02() -> tuple:
                    "更正", "補正",
                    "減資基準日", "基準日"]                      # 排除減資/銷除基準日公告（非新買回計畫）
     MONTHLY_KW      = ["注意交易資訊", "股價異常",
-                       "自結合併損益", "自結損益", "自結營業損益",
+                       "自結合併損益", "自結合併稅後損益", "自結合併稅前損益", "自結損益", "自結營業損益",
                        "自結財務", "月份自結", "自結盈餘",
                        "自行結算"]                                  # 月自結：注意交易 / 自結損益公告
     MONTHLY_EXCLUDE = ["解除", "終止", "轉換公司債", "更正"]       # 排除解除注意/可轉債/更正公告
@@ -7522,7 +7523,7 @@ if __name__ == "__main__":
     run = 0
     cached_news = None       # (news_analysis, news_items) | None
 
-    # 讀取上次抓取時間（跨重啟持久化，避免每次重啟都呼叫 Groq）
+    # 讀取上次抓取時間 + 內容（跨重啟持久化，避免每次重啟都呼叫 Groq）
     last_news_fetch: "datetime | None" = None
     try:
         if os.path.exists(NEWS_TS_FILE):
@@ -7530,6 +7531,15 @@ if __name__ == "__main__":
                 _ts = json.load(_f).get("ts")
             if _ts:
                 last_news_fetch = datetime.fromisoformat(_ts)
+    except Exception:
+        pass
+    try:
+        if os.path.exists(NEWS_CONTENT_FILE):
+            with open(NEWS_CONTENT_FILE, "r", encoding="utf-8") as _f:
+                _nc = json.load(_f)
+            if _nc.get("analysis") is not None:
+                cached_news = (_nc["analysis"], _nc.get("items", []))
+                print("  📰 已從磁碟載入新聞快取")
     except Exception:
         pass
     while True:
@@ -7559,12 +7569,21 @@ if __name__ == "__main__":
                 cached_news = result
             if news_due:
                 last_news_fetch = fetch_ts
-                # 持久化：下次重啟時不重複呼叫 Groq
+                # 持久化時間戳：下次重啟時不重複呼叫 Groq
                 try:
                     with open(NEWS_TS_FILE, "w", encoding="utf-8") as _f:
                         json.dump({"ts": fetch_ts.isoformat()}, _f)
                 except Exception:
                     pass
+                # 持久化新聞內容：下次重啟可直接沿用（CI 多次執行）
+                if cached_news is not None:
+                    try:
+                        _na, _ni = cached_news
+                        with open(NEWS_CONTENT_FILE, "w", encoding="utf-8") as _f:
+                            json.dump({"analysis": _na, "items": _ni}, _f,
+                                      ensure_ascii=False)
+                    except Exception:
+                        pass
         except Exception as e:
             print(f"❌ 執行錯誤：{e}")
 
