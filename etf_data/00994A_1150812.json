@@ -49,15 +49,15 @@
       "weight": 5.3
     },
     {
-      "code": "2059",
-      "name": "川湖",
-      "shares": 21001,
-      "weight": 4.85
-    },
-    {
       "code": "6274",
       "name": "台燿",
       "shares": 158000,
+      "weight": 4.85
+    },
+    {
+      "code": "2059",
+      "name": "川湖",
+      "shares": 21001,
       "weight": 4.85
     },
     {
@@ -223,15 +223,15 @@
       "weight": 0.05
     },
     {
-      "code": "2449",
-      "name": "京元電子",
-      "shares": 4000,
-      "weight": 0.02
-    },
-    {
       "code": "2404",
       "name": "漢唐",
       "shares": 1000,
+      "weight": 0.02
+    },
+    {
+      "code": "2449",
+      "name": "京元電子",
+      "shares": 4000,
       "weight": 0.02
     },
     {
