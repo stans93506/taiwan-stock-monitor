@@ -25,15 +25,15 @@
       "weight": 6.39
     },
     {
-      "code": "2454",
-      "name": "聯發科",
-      "shares": 79001,
-      "weight": 6.32
-    },
-    {
       "code": "3037",
       "name": "欣興",
       "shares": 334001,
+      "weight": 6.32
+    },
+    {
+      "code": "2454",
+      "name": "聯發科",
+      "shares": 79001,
       "weight": 6.32
     },
     {
@@ -223,15 +223,15 @@
       "weight": 0.05
     },
     {
-      "code": "2404",
-      "name": "漢唐",
-      "shares": 1000,
-      "weight": 0.02
-    },
-    {
       "code": "2449",
       "name": "京元電子",
       "shares": 4000,
+      "weight": 0.02
+    },
+    {
+      "code": "2404",
+      "name": "漢唐",
+      "shares": 1000,
       "weight": 0.02
     }
   ]
