@@ -1877,11 +1877,19 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
   </div>
 </div>"""
 
-    update_time = datetime.now().strftime("%Y/%m/%d %H:%M")
-
     # 找出最新基準日（最大日期），與其不同的 ETF 視為未更新
     all_dates = [res["today"]["date"] for res in etf_results.values() if res["today"].get("date")]
     ref_date = max(all_dates) if all_dates else ""
+
+    # 更新時間：取最新 ETF 資料日期（民國轉西元），而非程式執行時間
+    if ref_date:
+        _parts = ref_date.split("/")
+        try:
+            update_time = f"{int(_parts[0]) + 1911}/{_parts[1]}/{_parts[2]}"
+        except Exception:
+            update_time = ref_date
+    else:
+        update_time = datetime.now().strftime("%Y/%m/%d")
     stale = [(code, res["today"]["etf_name"], res["today"]["date"])
              for code, res in etf_results.items()
              if res["today"].get("date", "") < ref_date]
