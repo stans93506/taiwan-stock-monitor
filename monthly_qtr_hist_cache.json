@@ -3894,5 +3894,34 @@
         "op": null
       }
     ]
+  },
+  "2892": {
+    "latest_q": "115Q1",
+    "quarters": [
+      {
+        "q": "115Q1",
+        "eps": 0.57,
+        "gm": null,
+        "op": null
+      },
+      {
+        "q": "114Q4",
+        "eps": 0.36,
+        "gm": null,
+        "op": null
+      },
+      {
+        "q": "114Q3",
+        "eps": 0.54,
+        "gm": null,
+        "op": null
+      },
+      {
+        "q": "114Q2",
+        "eps": 0.46,
+        "gm": null,
+        "op": null
+      }
+    ]
   }
 }
