@@ -964,6 +964,7 @@ def _today_snapshot_exists(etf_code: str) -> bool:
 
 def save_snapshot(data: dict) -> Path:
     path = _snapshot_path(data["etf_code"], data["date"])
+    data.setdefault("fetch_time", datetime.now().strftime("%H:%M"))
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return path
@@ -1881,15 +1882,22 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
     all_dates = [res["today"]["date"] for res in etf_results.values() if res["today"].get("date")]
     ref_date = max(all_dates) if all_dates else ""
 
-    # 更新時間：取最新 ETF 資料日期（民國轉西元），而非程式執行時間
+    # 更新時間：最新 ETF 資料日期（民國→西元）+ 最晚 fetch_time
+    all_fetch_times = [
+        res["today"].get("fetch_time", "")
+        for res in etf_results.values()
+        if res["today"].get("date") == ref_date and res["today"].get("fetch_time")
+    ]
+    latest_hm = max(all_fetch_times) if all_fetch_times else ""
     if ref_date:
         _parts = ref_date.split("/")
         try:
-            update_time = f"{int(_parts[0]) + 1911}/{_parts[1]}/{_parts[2]}"
+            _date_str = f"{int(_parts[0]) + 1911}/{_parts[1]}/{_parts[2]}"
         except Exception:
-            update_time = ref_date
+            _date_str = ref_date
+        update_time = f"{_date_str} {latest_hm}".strip()
     else:
-        update_time = datetime.now().strftime("%Y/%m/%d")
+        update_time = datetime.now().strftime("%Y/%m/%d %H:%M")
     stale = [(code, res["today"]["etf_name"], res["today"]["date"])
              for code, res in etf_results.items()
              if res["today"].get("date", "") < ref_date]
