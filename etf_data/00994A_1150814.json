@@ -205,15 +205,15 @@
       "weight": 0.23
     },
     {
-      "code": "2317",
-      "name": "鴻海",
-      "shares": 40000,
-      "weight": 0.19
-    },
-    {
       "code": "3231",
       "name": "緯創",
       "shares": 51000,
+      "weight": 0.19
+    },
+    {
+      "code": "2317",
+      "name": "鴻海",
+      "shares": 40000,
       "weight": 0.19
     },
     {
@@ -229,17 +229,17 @@
       "weight": 0.05
     },
     {
-      "code": "2404",
-      "name": "漢唐",
-      "shares": 1000,
-      "weight": 0.02
-    },
-    {
       "code": "2449",
       "name": "京元電子",
       "shares": 4000,
       "weight": 0.02
+    },
+    {
+      "code": "2404",
+      "name": "漢唐",
+      "shares": 1000,
+      "weight": 0.02
     }
   ],
-  "fetch_time": "10:41"
+  "fetch_time": "11:13"
 }
