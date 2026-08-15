@@ -3249,7 +3249,7 @@ _NEWS_USER = """以下是今日（{date}）財經新聞標題，請整理成每�
 """
 
 def _groq_post(messages: list, temperature=0.4, timeout=60,
-               model: str = "llama-3.3-70b-versatile") -> str:
+               model: str = "openai/gpt-oss-120b") -> str:
     """
     呼叫 Groq API，回傳回應文字。
     遇到 429（rate limit）時：
