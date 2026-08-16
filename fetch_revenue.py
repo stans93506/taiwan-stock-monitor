@@ -101,7 +101,7 @@ REV_ARCHIVE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "
 REV_ARCHIVE_MONTHS  = 2   # 保留最近 N 個月封存
 PREV_DATA_CACHE_FILE         = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prev_data_cache.json")
 MONTHLY_PREV_CACHE_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monthly_prev_cache.json")
-MONTHLY_CACHE_DAYS = 30   # 保留最近幾天的歷史
+MONTHLY_CACHE_DAYS = 180  # 保留最近半年的歷史
 EVENT_KEEP_DAYS    = 14   # 法說會：預定日過後保留幾天（追蹤績效用）
 SPO_CACHE_FILE     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "spo_cache.json")
 SPO_CACHE_DAYS     = 90   # 現增：公告到新股掛牌可能跨月，保留 90 天
@@ -2715,8 +2715,9 @@ def build_monthly_row(row, prev: dict = None):
         return f"<td style='color:#6b7280'>{sign}{v:.2f}%</td>"
 
     code = row.get('股票代碼', '')
+    ym   = row.get('_ym', '')
     return (
-        f"<tr{tr_cls} data-code='{code}'>"
+        f"<tr{tr_cls} data-code='{code}' data-ym='{ym}'>"
         f"<td style='display:none'>{group}</td>"
         f"<td><span class='badge {badge}'>{mkt}</span></td>"
         f"<td><b style='color:#4fc3f7'>{code}</b></td>"
@@ -4304,7 +4305,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <!-- ═══ 月自結分頁 ═══ -->
   <div id="tab-monthly" class="tab-pane">
     <div class="card">
-      <div class="card-header px-3 py-2">月自結公告（注意交易資訊標準）{monthly_unreact_badge}</div>
+      <div class="card-header px-3 py-2" style="display:flex;align-items:center;gap:8px;">月自結公告（注意交易資訊標準）{monthly_unreact_badge}{monthly_archive_btn}</div>
       <div class="card-body p-0">
         {monthly_content}
       </div>
@@ -4881,6 +4882,27 @@ $(document).ready(function() {{
     $('#evtReset').on('click', function(){{ $('#evtType').val(''); evtT.column(1).search('').draw(); }});
   }}
 
+  // ── 月自結：封存公告 toggle ──
+  var _monthlyArchiveExpanded = false;
+  function toggleMonthlyArchive() {{
+    _monthlyArchiveExpanded = true;
+    if (window._mthDT) window._mthDT.draw();
+    var btn = document.getElementById('monthlyArchiveBtn');
+    var badge = document.getElementById('monthlyArchiveBadge');
+    if (btn)   btn.style.display   = 'none';
+    if (badge) badge.style.display = 'inline';
+  }}
+  if ($.fn.dataTable) {{
+    $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {{
+      if (!settings.nTable || settings.nTable.id !== 'monthlyTable') return true;
+      if (_monthlyArchiveExpanded) return true;
+      var row = settings.aoData[dataIndex] && settings.aoData[dataIndex].nTr;
+      if (!row) return true;
+      var ym = row.getAttribute('data-ym') || '';
+      return !ym || ym === (window.MONTHLY_CURRENT_YM || '');
+    }});
+  }}
+
   // ── 月自結表 ──
   if($('#monthlyTable').length) {{
     var mthT = $('#monthlyTable').DataTable({{
@@ -4909,6 +4931,7 @@ $(document).ready(function() {{
         }});
       }}
     }});
+    window._mthDT = mthT;
     $('#monthlyMkt').on('change', function(){{ mthT.column(1).search(this.value).draw(); }});
 
     // ── 月自結 detail panel（點擊列展開過去4季） ──
@@ -5683,17 +5706,35 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
     # ── 月自結 tab 內容 ──
     if df_monthly is not None and not (hasattr(df_monthly, 'empty') and df_monthly.empty):
         # 重算未反映：只有今日13:30後才算（非今日一律視為已反映）
+        _current_ym = str(datetime.now().year - 1911) + datetime.now().strftime("%m")
         if "_排序鍵" in df_monthly.columns:
-            today_roc7 = str(datetime.now().year - 1911) + datetime.now().strftime("%m%d")
             df_monthly["未反映"] = df_monthly["_排序鍵"].apply(
                 lambda k: _is_unreflected(k[:7], k[7:])
             )
+            df_monthly["_ym"] = df_monthly["_排序鍵"].apply(
+                lambda k: str(k)[:5] if k else ""
+            )
             df_monthly = df_monthly.drop(columns=["_排序鍵"])
+        else:
+            df_monthly["_ym"] = _current_ym
+        _monthly_archive_count = int((df_monthly["_ym"] != _current_ym).sum())
         monthly_unreact = int(df_monthly["未反映"].sum()) if "未反映" in df_monthly.columns else 0
         monthly_unreact_badge = (
             f"<span class='badge-unreact ms-2'>今日申報 {monthly_unreact} 筆</span>"
             if monthly_unreact > 0 else ""
         )
+        if _monthly_archive_count > 0:
+            monthly_archive_btn = (
+                f"<button id='monthlyArchiveBtn' onclick='toggleMonthlyArchive()' "
+                f"style='margin-left:auto;background:transparent;border:1px solid #4fc3f7;"
+                f"color:#4fc3f7;padding:2px 10px;border-radius:4px;cursor:pointer;font-size:.8rem;"
+                f"white-space:nowrap;'>載入更早封存公告</button>"
+                f"<span id='monthlyArchiveBadge' style='display:none;margin-left:8px;"
+                f"background:#1f6feb;color:#fff;padding:2px 10px;border-radius:4px;"
+                f"font-size:.8rem;font-weight:600;'>已載入封存公告 {_monthly_archive_count} 筆</span>"
+            )
+        else:
+            monthly_archive_btn = ""
         _monthly_pd = monthly_prev_data if monthly_prev_data is not None else (prev_data or {})
         monthly_rows_html = "\n".join(
             build_monthly_row(r, _monthly_pd.get(str(r.get("股票代碼", ""))))
@@ -5730,7 +5771,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                 _mth_text_map[_mc] = {"title": _title, "text": _txt}
         monthly_text_json = json.dumps(_mth_text_map, ensure_ascii=False)
 
-        monthly_content = f"""<script>window.MONTHLY_QTR_DATA={monthly_qtr_json};window.MONTHLY_TEXT_DATA={monthly_text_json};</script>
+        monthly_content = f"""<script>window.MONTHLY_QTR_DATA={monthly_qtr_json};window.MONTHLY_TEXT_DATA={monthly_text_json};window.MONTHLY_CURRENT_YM='{_current_ym}';window.MONTHLY_ARCHIVE_COUNT={_monthly_archive_count};</script>
 <div class="table-responsive">
           <table id="monthlyTable" class="table table-hover mb-0 w-100">
             <thead>
@@ -5746,6 +5787,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
     else:
         monthly_unreact = 0
         monthly_unreact_badge = ""
+        monthly_archive_btn = ""
         monthly_content = '<div class="no-data">今日無月自結公告</div>'
 
     # 新聞 tab
@@ -5955,6 +5997,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         treasury_content=treasury_content,
         monthly_unreact=monthly_unreact,
         monthly_unreact_badge=monthly_unreact_badge,
+        monthly_archive_btn=monthly_archive_btn,
         monthly_content=monthly_content,
         news_date=news_date or datetime.now().strftime("%Y/%m/%d %H:%M 更新"),
         news_analysis=news_analysis or "<p style='color:#888;'>新聞分析載入中...</p>",
