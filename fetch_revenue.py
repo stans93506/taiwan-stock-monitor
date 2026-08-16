@@ -708,10 +708,22 @@ def save_prev_data_cache(quarter_label: str, prev: dict) -> None:
 
 def load_qtr_cum_cache() -> dict:
     """載入季報累計原始金額 cache（每季公告時存入，供下季計算單季值用）。
-    格式：{code: {quarter, rev, gross, oper, pretax, eps}}"""
+    新格式：{code: {quarter_label: {rev, gross, oper, pretax, eps}}}
+    舊格式（{code: {quarter, rev, ...}}）自動升級為新格式。"""
     try:
         with open(QTR_CUM_CACHE_FILE, encoding="utf-8") as f:
-            return json.load(f)
+            raw = json.load(f)
+        # 自動升級舊格式
+        result = {}
+        for code, val in raw.items():
+            if isinstance(val, dict) and "quarter" in val:
+                # 舊格式：{quarter, rev, gross, oper, pretax, eps}
+                q = val["quarter"]
+                result[code] = {q: {k: v for k, v in val.items() if k != "quarter"}}
+            else:
+                # 已是新格式 {quarter_label: {...}}
+                result[code] = val
+        return result
     except Exception:
         return {}
 
@@ -1685,26 +1697,35 @@ def save_event_cache(df_today: pd.DataFrame, existing: list) -> None:
         print(f"  ⚠️ event cache 寫入失敗：{e}")
 
 
-def fetch_prev_quarter_t164sb04(df_qtr: pd.DataFrame) -> dict:
+def fetch_prev_quarter_t164sb04(df_qtr: pd.DataFrame, force_prev_label: str = None) -> dict:
     """用 t163sb15（累計季報）計算單季數字，回傳上季對比 prev_data dict。
     t163sb15 回傳：第一季 / 前二季累計 / 前三季累計 / 前四季累計（全年）
     單季值 = 當季累計 − 前季累計；Q1 直接取第一季欄位。
+    force_prev_label：強制指定上季標籤（如 '115Q1'），優先於日曆推算。
     """
     if df_qtr is None or df_qtr.empty:
         return {}
 
-    now = datetime.now()
-    m, d, roc = now.month, now.day, now.year - 1911
-    # 台灣季報申報截止：Q1→5/15、Q2→8/14、Q3→11/14、Q4→3/31
-    # 截止日後才顯示該季，避免還沒公告就對比空資料
-    if   (m < 4) or (m == 3):                         prev_yr, prev_qtr = roc - 1, 3  # Jan-Mar: Q3 前年
-    elif (m == 4) or (m == 5 and d <= 15):            prev_yr, prev_qtr = roc - 1, 4  # Apr~5/15: Q4 前年
-    elif (m == 5 and d > 15) or (m in (6, 7)) or (m == 8 and d <= 14):
-                                                       prev_yr, prev_qtr = roc,     1  # 5/16~8/14: Q1
-    elif (m == 8 and d > 14) or (m in (9, 10)) or (m == 11 and d <= 14):
-                                                       prev_yr, prev_qtr = roc,     2  # 8/15~11/14: Q2
-    else:                                              prev_yr, prev_qtr = roc,     3  # 11/15~12/31: Q3
-    prev_label = f"{prev_yr}Q{prev_qtr}"
+    prev_yr = prev_qtr = prev_label = None
+    if force_prev_label and "Q" in str(force_prev_label):
+        try:
+            _py, _pq = force_prev_label.split("Q")
+            prev_yr, prev_qtr, prev_label = int(_py), int(_pq), force_prev_label
+        except Exception:
+            pass
+
+    if prev_label is None:
+        now = datetime.now()
+        m, d, roc = now.month, now.day, now.year - 1911
+        # 台灣季報申報截止：Q1→5/15、Q2→8/14、Q3→11/14、Q4→3/31
+        if   (m < 4) or (m == 3):                         prev_yr, prev_qtr = roc - 1, 3
+        elif (m == 4) or (m == 5 and d <= 15):            prev_yr, prev_qtr = roc - 1, 4
+        elif (m == 5 and d > 15) or (m in (6, 7)) or (m == 8 and d <= 14):
+                                                           prev_yr, prev_qtr = roc,     1
+        elif (m == 8 and d > 14) or (m in (9, 10)) or (m == 11 and d <= 14):
+                                                           prev_yr, prev_qtr = roc,     2
+        else:                                              prev_yr, prev_qtr = roc,     3
+        prev_label = f"{prev_yr}Q{prev_qtr}"
 
     codes = list(df_qtr["股票代碼"].astype(str).str.strip().unique())
     print(f"    查詢上季 {prev_label}（t163sb15）{len(codes)} 家...", end="", flush=True)
@@ -5402,6 +5423,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             _r_gross  = _dv(_r, "毛利")
             _r_oper   = _dv(_r, "營業利益")
             _r_pretax = _dv(_r, "稅前淨利")
+            _pq_str    = str(_pr.get("季度", "")) if _pr else ""
             _pr_rev    = _dv(_pr, "營業收入")
             _pr_gross  = _dv(_pr, "毛利")
             _pr_oper   = _dv(_pr, "營業利益")
@@ -7138,31 +7160,63 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
 
     print("【上季對比 + 本季補充】載入...")
     # ── ① qtr_cache 歷史資料直接當上季對比（核心機制）──────────────────
-    # 設計：當季公告存入 qtr_cache → 下季季報時，cache 歷史就是「上季」資料
-    # 例：Q2 季報季→ cache 存 Q2；Q3 季報季開始時，cache 的 Q2 歷史即上季對比
+    # prev_full_lookup 在去重前已建立（每家第二新季度 = 正確上季），直接使用
     prev_data: dict = {}
-    if df_qtr is not None and not df_qtr.empty:
-        prev_data = _build_prev_from_qtr(df_qtr)
+    if prev_full_lookup:
+        def _val_safe(v):
+            return None if v is None or (isinstance(v, float) and pd.isna(v)) else v
+        for _c, _row in prev_full_lookup.items():
+            _eps = _val_safe(_row.get("EPS"))
+            if _eps is None:
+                continue
+            prev_data[_c] = {
+                "上季季度":    _val_safe(_row.get("季度", "")),
+                "上季EPS":     _eps,
+                "上季毛利率":  _val_safe(_row.get("毛利率")),
+                "上季營益率":  _val_safe(_row.get("營益率")),
+                "上季業外%":   _val_safe(_row.get("業外%")),
+                "上季營收":    _val_safe(_row.get("營業收入")),
+                "上季毛利":    _val_safe(_row.get("毛利")),
+                "上季營業利益": _val_safe(_row.get("營業利益")),
+                "上季稅前淨利": _val_safe(_row.get("稅前淨利")),
+            }
         if prev_data:
             print(f"  qtr_cache 歷史取得上季資料：{len(prev_data)} 家")
 
     # ── ② 輔助 cache（跨執行持久化已查到的資料）─────────────────────────
-    _now = datetime.now(); _m = _now.month; _d = _now.day; _roc = _now.year - 1911
-    if   (_m < 4) or (_m == 3):                        _prev_label = f"{_roc-1}Q3"
-    elif (_m == 4) or (_m == 5 and _d <= 15):          _prev_label = f"{_roc-1}Q4"
-    elif (_m == 5 and _d > 15) or (_m in (6,7)) or (_m == 8 and _d <= 14):
-                                                        _prev_label = f"{_roc}Q1"
-    elif (_m == 8 and _d > 14) or (_m in (9,10)) or (_m == 11 and _d <= 14):
-                                                        _prev_label = f"{_roc}Q2"
-    else:                                               _prev_label = f"{_roc}Q3"
+    # 從 df_qtr 的實際季度推算「上季」標籤，避免日曆邊界在 8/15 後誤判
+    def _prev_q_label_s(q: str) -> str:
+        try:
+            yr, qn = q.split("Q"); yr, qn = int(yr), int(qn)
+            return f"{yr-1}Q4" if qn == 1 else f"{yr}Q{qn-1}"
+        except Exception:
+            return ""
+
+    _prev_label = ""
+    if df_qtr is not None and not df_qtr.empty and "季度" in df_qtr.columns:
+        _active_qtrs = [q for q in df_qtr["季度"].astype(str).str.strip().unique()
+                        if q and "Q" in q]
+        if _active_qtrs:
+            _curr_q_max = max(_active_qtrs, key=_qnum_s)
+            _prev_label = _prev_q_label_s(_curr_q_max)
+    if not _prev_label:  # fallback：日曆日期推算
+        _now = datetime.now(); _m = _now.month; _d = _now.day; _roc = _now.year - 1911
+        if   (_m < 4) or (_m == 3):                        _prev_label = f"{_roc-1}Q3"
+        elif (_m == 4) or (_m == 5 and _d <= 15):          _prev_label = f"{_roc-1}Q4"
+        elif (_m == 5 and _d > 15) or (_m in (6,7)) or (_m == 8 and _d <= 14):
+                                                            _prev_label = f"{_roc}Q1"
+        elif (_m == 8 and _d > 14) or (_m in (9,10)) or (_m == 11 and _d <= 14):
+                                                            _prev_label = f"{_roc}Q2"
+        else:                                               _prev_label = f"{_roc}Q3"
 
     # qtr_cache 找不到的（歷史不足），才從 prev_data_cache 補（t163sb15 查過的結果）
     aux_prev = load_prev_data_cache(_prev_label)
     filled_from_aux = 0
     for code, d in aux_prev.items():
-        if code not in prev_data and d.get("上季EPS") is not None:
+        if code not in prev_data:
             prev_data[code] = d
-            filled_from_aux += 1
+            if d.get("上季EPS") is not None:
+                filled_from_aux += 1
     if filled_from_aux:
         print(f"  prev_data cache 補充：{filled_from_aux} 家（{_prev_label}）")
 
@@ -7174,16 +7228,18 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         all_needed_codes |= set(df_monthly["股票代碼"].astype(str).str.strip().unique())
 
     # EPS=None 或缺少原始金額欄位（舊 cache 無 "上季營收"）→ 重查 t163sb15
+    # 但若已在 aux_prev（本季已查過），即使回傳 None 也不重查（避免每次執行都重查）
     missing_codes = [c for c in all_needed_codes
                      if c not in prev_data
-                     or prev_data[c].get("上季EPS") is None
-                     or prev_data[c].get("上季營收") is None]
+                     or (c not in aux_prev and (
+                         prev_data[c].get("上季EPS") is None
+                         or prev_data[c].get("上季營收") is None))]
 
     curr_supp: dict = {}
     if missing_codes:
         print(f"  t163sb15 補查 {len(missing_codes)} 家...", end="", flush=True)
         df_still = pd.DataFrame({"股票代碼": missing_codes})
-        new_prev = fetch_prev_quarter_t164sb04(df_still)
+        new_prev = fetch_prev_quarter_t164sb04(df_still, force_prev_label=_prev_label)
         prev_data.update(new_prev)
         print(f" 補到 {len(new_prev)} 家，完成")
         save_prev_data_cache(_prev_label, prev_data)
@@ -7316,7 +7372,8 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
             # ③ t163sb15 補查
             if still_m:
                 print(f"  月自結 t163sb15 補查 {len(still_m)} 家...", end="", flush=True)
-                new_m = fetch_prev_quarter_t164sb04(pd.DataFrame({"股票代碼": still_m}))
+                new_m = fetch_prev_quarter_t164sb04(pd.DataFrame({"股票代碼": still_m}),
+                                                    force_prev_label=_prev_label)
                 for code, val in new_m.items():
                     if val.get("EPS") is not None or code not in monthly_prev_data:
                         monthly_prev_data[code] = val
@@ -7427,13 +7484,15 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         if _p.get("上季營收") is not None:
             continue
         _prev_q = _p.get("上季季度", "")
-        _cached = _qtr_cum_cache.get(_c, {})
-        if not _cached or _cached.get("quarter") != _prev_q:
+        _cached = _qtr_cum_cache.get(_c, {}).get(_prev_q, {})
+        if not _cached:
             continue
         _p["上季營收"]    = _cached.get("rev")
         _p["上季毛利"]    = _cached.get("gross")
         _p["上季營業利益"] = _cached.get("oper")
         _p["上季稅前淨利"] = _cached.get("pretax")
+        if _p.get("上季EPS") is None and _cached.get("eps") is not None:
+            _p["上季EPS"] = _cached.get("eps")
         _cum_filled += 1
     if _cum_filled:
         print(f"  qtr_cum_cache 補充：{_cum_filled} 家的上季原始金額已從累計 cache 取得")
@@ -7456,12 +7515,17 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
             _eps    = _safe_num(_qrow, "EPS")
             if not _c or not _q or _rev is None:
                 continue
-            _ex = _qtr_cum_cache.get(_c, {})
-            if not _ex or _qnum_str(_q) >= _qnum_str(_ex.get("quarter", "")):
-                _qtr_cum_cache[_c] = {
-                    "quarter": _q, "rev": _rev, "gross": _gross,
-                    "oper": _oper, "pretax": _pretax, "eps": _eps,
-                }
+            if _c not in _qtr_cum_cache:
+                _qtr_cum_cache[_c] = {}
+            # 只覆寫同季或更新季（保留舊季度資料）
+            _entry = _qtr_cum_cache[_c]
+            if _q not in _entry or _qnum_str(_q) >= max((_qnum_str(k) for k in _entry), default=0):
+                _entry[_q] = {"rev": _rev, "gross": _gross,
+                               "oper": _oper, "pretax": _pretax, "eps": _eps}
+            # 修剪：每家公司只保留最近 4 個季度
+            if len(_entry) > 4:
+                _keep_qtrs = sorted(_entry.keys(), key=_qnum_str, reverse=True)[:4]
+                _qtr_cum_cache[_c] = {k: _entry[k] for k in _keep_qtrs}
         save_qtr_cum_cache(_qtr_cum_cache)
         print(f"  qtr_cum_cache 已更新（{len(_qtr_cum_cache)} 家）")
 
