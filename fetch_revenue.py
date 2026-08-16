@@ -4305,7 +4305,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <!-- ═══ 月自結分頁 ═══ -->
   <div id="tab-monthly" class="tab-pane">
     <div class="card">
-      <div class="card-header px-3 py-2" style="display:flex;align-items:center;gap:8px;">月自結公告（注意交易資訊標準）{monthly_unreact_badge}{monthly_archive_btn}</div>
+      <div class="card-header px-3 py-2">月自結公告（注意交易資訊標準）{monthly_unreact_badge} {monthly_archive_btn}</div>
       <div class="card-body p-0">
         {monthly_content}
       </div>
@@ -4417,6 +4417,17 @@ function switchTab(id, btn) {{
   if (id === 'event')    {{ _adj('#eventTable'); }}
   if (id === 'etf')      {{ _adj('#etfStockTable'); _adj('#etfChangeTable'); _adj('#etfFundTable'); }}
   if (id === 'spo')      {{ _adj('#spoTable'); }}
+}}
+
+// ── 月自結封存公告 toggle（全域，供 onclick 存取）──
+window._monthlyArchiveExpanded = false;
+function toggleMonthlyArchive() {{
+  window._monthlyArchiveExpanded = true;
+  if (window._mthDT) window._mthDT.draw();
+  var btn = document.getElementById('monthlyArchiveBtn');
+  var badge = document.getElementById('monthlyArchiveBadge');
+  if (btn)   btn.style.display   = 'none';
+  if (badge) badge.style.display = 'inline';
 }}
 
 $(document).ready(function() {{
@@ -4882,20 +4893,11 @@ $(document).ready(function() {{
     $('#evtReset').on('click', function(){{ $('#evtType').val(''); evtT.column(1).search('').draw(); }});
   }}
 
-  // ── 月自結：封存公告 toggle ──
-  var _monthlyArchiveExpanded = false;
-  function toggleMonthlyArchive() {{
-    _monthlyArchiveExpanded = true;
-    if (window._mthDT) window._mthDT.draw();
-    var btn = document.getElementById('monthlyArchiveBtn');
-    var badge = document.getElementById('monthlyArchiveBadge');
-    if (btn)   btn.style.display   = 'none';
-    if (badge) badge.style.display = 'inline';
-  }}
+  // ── 月自結：封存公告 toggle（全域，供 onclick 使用）──
   if ($.fn.dataTable) {{
     $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {{
       if (!settings.nTable || settings.nTable.id !== 'monthlyTable') return true;
-      if (_monthlyArchiveExpanded) return true;
+      if (window._monthlyArchiveExpanded) return true;
       var row = settings.aoData[dataIndex] && settings.aoData[dataIndex].nTr;
       if (!row) return true;
       var ym = row.getAttribute('data-ym') || '';
@@ -5726,7 +5728,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         if _monthly_archive_count > 0:
             monthly_archive_btn = (
                 f"<button id='monthlyArchiveBtn' onclick='toggleMonthlyArchive()' "
-                f"style='margin-left:auto;background:transparent;border:1px solid #4fc3f7;"
+                f"style='background:transparent;border:1px solid #4fc3f7;"
                 f"color:#4fc3f7;padding:2px 10px;border-radius:4px;cursor:pointer;font-size:.8rem;"
                 f"white-space:nowrap;'>載入更早封存公告</button>"
                 f"<span id='monthlyArchiveBadge' style='display:none;margin-left:8px;"
