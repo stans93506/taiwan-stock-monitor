@@ -2418,7 +2418,7 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
             if not cells:
                 continue
             label = cells[0].get_text(strip=True)
-            if "稀釋" in label:
+            if "稀釋" in label or "面額" in label:
                 continue
             _is_per = "每股" in label and ("盈餘" in label or "純益" in label or "淨利" in label)
             if _is_per:
@@ -2582,7 +2582,7 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
     if eps is None:
         # fallback：冒號格式 / EPS 英文標籤 / 每股淨利/稅後純益無冒號
         for pat in [
-            r'每股[^：:\n]*[：:]\s*(-?[\d.]+)',
+            r'每股(?!面額|票面|發行)[^：:\n]*[：:]\s*(-?[\d.]+)',
             r'EPS[^：:\n]*[：:]\s*(-?[\d.]+)',
             r'每股淨利[^\d（\(]{0,5}(-?[\d.]+)',     # 無冒號直接接數字
             r'每股稅後[盈純][益餘][^\d（\(]{0,5}(-?[\d.]+)',  # 每股稅後盈餘/每股稅後純益
@@ -6863,13 +6863,16 @@ def fetch_t05st02() -> tuple:
                 except Exception:
                     pass
                 continue
-            if d.get("EPS") is None:
+            _eps_val = d.get("EPS")
+            if _eps_val is None or (_eps_val is not None and _eps_val == int(_eps_val) and abs(_eps_val) <= 20):
+                # EPS=None 或可疑整數（如10、-10）→ 寫 debug
                 _dbg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"_debug_monthly_{code}.txt")
                 try:
                     with open(_dbg_path, "w", encoding="utf-8") as _f:
-                        _f.write(f"=== {code} desc={p['desc'][:80]} ===\n")
+                        _f.write(f"=== {code} EPS={_eps_val} desc={p['desc'][:80]} ===\n")
                         _f.write(text)
-                    print(f"\n        [{code}] EPS=None，文字已存到 {_dbg_path}")
+                    _note = "EPS=None" if _eps_val is None else f"EPS可疑={_eps_val}"
+                    print(f"\n        [{code}] {_note}，文字已存到 {_dbg_path}")
                 except Exception:
                     pass
             monthly_result.append({
