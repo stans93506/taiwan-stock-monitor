@@ -1,0 +1,227 @@
+{
+  "etf_code": "00992A",
+  "etf_name": "主動群益科技創新",
+  "date": "115/08/17",
+  "nav_per_unit": 18.23,
+  "nav_total": 44343646752.0,
+  "units": 2432455000.0,
+  "holdings": [
+    {
+      "code": "2059",
+      "name": "川湖",
+      "shares": 260000,
+      "weight": 8.062
+    },
+    {
+      "code": "2330",
+      "name": "台積電",
+      "shares": 1406000,
+      "weight": 7.6096
+    },
+    {
+      "code": "3017",
+      "name": "奇鋐",
+      "shares": 1002000,
+      "weight": 7.1178
+    },
+    {
+      "code": "2383",
+      "name": "台光電",
+      "shares": 465000,
+      "weight": 6.6587
+    },
+    {
+      "code": "3037",
+      "name": "欣興",
+      "shares": 2497000,
+      "weight": 6.3067
+    },
+    {
+      "code": "3665",
+      "name": "貿聯-KY",
+      "shares": 1161000,
+      "weight": 5.5898
+    },
+    {
+      "code": "2345",
+      "name": "智邦",
+      "shares": 1080000,
+      "weight": 5.5773
+    },
+    {
+      "code": "3008",
+      "name": "大立光",
+      "shares": 420000,
+      "weight": 4.802
+    },
+    {
+      "code": "8996",
+      "name": "高力",
+      "shares": 1630000,
+      "weight": 4.4661
+    },
+    {
+      "code": "2454",
+      "name": "聯發科",
+      "shares": 406000,
+      "weight": 3.708
+    },
+    {
+      "code": "6223",
+      "name": "旺矽",
+      "shares": 263000,
+      "weight": 3.4399
+    },
+    {
+      "code": "3231",
+      "name": "緯創",
+      "shares": 7662000,
+      "weight": 3.2311
+    },
+    {
+      "code": "6584",
+      "name": "南俊國際",
+      "shares": 2231000,
+      "weight": 2.9985
+    },
+    {
+      "code": "2308",
+      "name": "台達電",
+      "shares": 632000,
+      "weight": 2.6865
+    },
+    {
+      "code": "2455",
+      "name": "全新",
+      "shares": 2753000,
+      "weight": 2.5888
+    },
+    {
+      "code": "8021",
+      "name": "尖點",
+      "shares": 2682000,
+      "weight": 2.5886
+    },
+    {
+      "code": "1303",
+      "name": "南亞",
+      "shares": 5445000,
+      "weight": 2.4619
+    },
+    {
+      "code": "1815",
+      "name": "富喬",
+      "shares": 10877000,
+      "weight": 2.367
+    },
+    {
+      "code": "3711",
+      "name": "日月光投控",
+      "shares": 1629000,
+      "weight": 2.2592
+    },
+    {
+      "code": "3443",
+      "name": "創意",
+      "shares": 160000,
+      "weight": 2.1107
+    },
+    {
+      "code": "3661",
+      "name": "世芯-KY",
+      "shares": 215000,
+      "weight": 1.9684
+    },
+    {
+      "code": "3189",
+      "name": "景碩",
+      "shares": 840013,
+      "weight": 1.7143
+    },
+    {
+      "code": "6669",
+      "name": "緯穎",
+      "shares": 77000,
+      "weight": 1.1495
+    },
+    {
+      "code": "4958",
+      "name": "臻鼎-KY",
+      "shares": 1000000,
+      "weight": 1.1343
+    },
+    {
+      "code": "8046",
+      "name": "南電",
+      "shares": 300000,
+      "weight": 0.8761
+    },
+    {
+      "code": "6515",
+      "name": "穎崴",
+      "shares": 42000,
+      "weight": 0.626
+    },
+    {
+      "code": "6805",
+      "name": "富世達",
+      "shares": 109000,
+      "weight": 0.4731
+    },
+    {
+      "code": "6139",
+      "name": "亞翔",
+      "shares": 250000,
+      "weight": 0.4549
+    },
+    {
+      "code": "2337",
+      "name": "旺宏",
+      "shares": 1343000,
+      "weight": 0.3922
+    },
+    {
+      "code": "7734",
+      "name": "印能科技",
+      "shares": 56000,
+      "weight": 0.3876
+    },
+    {
+      "code": "5289",
+      "name": "宜鼎",
+      "shares": 98000,
+      "weight": 0.3381
+    },
+    {
+      "code": "3260",
+      "name": "威剛",
+      "shares": 358000,
+      "weight": 0.3229
+    },
+    {
+      "code": "3583",
+      "name": "辛耘",
+      "shares": 147000,
+      "weight": 0.2416
+    },
+    {
+      "code": "5347",
+      "name": "世界",
+      "shares": 629000,
+      "weight": 0.2297
+    },
+    {
+      "code": "7751",
+      "name": "竑騰",
+      "shares": 25000,
+      "weight": 0.0834
+    },
+    {
+      "code": "3264",
+      "name": "欣銓",
+      "shares": 72000,
+      "weight": 0.0355
+    }
+  ],
+  "fetch_time": "09:43"
+}
