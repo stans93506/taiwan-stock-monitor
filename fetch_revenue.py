@@ -3125,7 +3125,7 @@ _NEWS_HEADERS = {
     "Accept-Language": "zh-TW,zh;q=0.9",
 }
 
-def _fetch_article_snippet(url: str, max_chars: int = 250) -> str:
+def _fetch_article_snippet(url: str, max_chars: int = 400) -> str:
     """抓文章前段內容（用於取得美股收盤具體數字），失敗回傳空字串"""
     try:
         resp = requests.get(url, headers=_NEWS_HEADERS, timeout=10, verify=False)
@@ -3466,11 +3466,12 @@ def fetch_daily_news_analysis() -> tuple:
                 ai_score = 1
         item["score"] = ai_score
 
-    # 步驟2：對評分 ≥3 的文章並發抓內文
+    # 步驟2：score≥4 抓 400 字內文，score=3 不抓（標題已足夠）
     import concurrent.futures
-    _fetch_targets = [it for it in all_news if (it.get("score") or 0) >= 3]
+    _fetch_targets = [it for it in all_news if (it.get("score") or 0) >= 4]
+    got = 0
     if _fetch_targets:
-        print(f"  → 並發抓高分文章內文（{len(_fetch_targets)} 篇，score≥3）...", end="", flush=True)
+        print(f"  → 並發抓高分文章內文（{len(_fetch_targets)} 篇，score≥4）...", end="", flush=True)
         def _fetch_one(it):
             return it, _fetch_article_snippet(it["url"])
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
@@ -3483,7 +3484,8 @@ def fetch_daily_news_analysis() -> tuple:
     # 步驟3：按分數排序（高分在前）
     all_news.sort(key=lambda x: -(x.get("score") or 0))
 
-    # 步驟4：AI 深度分析（只傳 score≥3 的文章，避免 Groq 413 payload too large）
+    # 步驟4：AI 深度分析
+    # score≥4：標題 + 400 字內文；score=3：標題；score≤2：不進分析
     analysis_news = [it for it in all_news if (it.get("score") or 0) >= 3]
     news_text = "\n".join(
         f"[{i+1}] ({item['source']}) {item['title']}" +
