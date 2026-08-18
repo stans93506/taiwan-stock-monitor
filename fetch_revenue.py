@@ -6824,10 +6824,8 @@ def fetch_t05st02() -> tuple:
             other_r = round((pretax - oper) / abs(pretax) * 100, 2) \
                       if (pretax and oper is not None and pretax != 0) else None
 
-            # 二層過濾：文字完全抓不到且 desc 也不含財務關鍵字 → 非財報公告，略過
-            # 「董事會通過財務報告」等只有決議文字而無數字的公告仍保留（顯示為 —）
-            _has_fin_kw = any(k in p["desc"] for k in ("財務報告", "財務報表", "合併財務", "合併財報"))
-            if eps is None and gross_r is None and oper_r is None and not _has_fin_kw:
+            # 二層過濾：EPS、毛利率、營益率全部沒有 → 公告內無財務數字，略過
+            if eps is None and gross_r is None and oper_r is None:
                 print(f"\n        [{code}] 無財務數字，略過（{p['desc'][:30]}）")
                 continue
 
