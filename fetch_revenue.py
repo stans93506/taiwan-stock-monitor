@@ -3442,16 +3442,23 @@ def fetch_daily_news_analysis() -> tuple:
     if not GROQ_API_KEY:
         return "<p>⚠️ 未設定 GROQ_API_KEY</p>", all_news
 
-    # 對美股/收盤相關文章抓內文摘要（最多 4 篇，用於給 Groq 真實數字）
-    _us_kw = ("美股", "道瓊", "那斯達克", "收盤", "S&P", "標普", "Nasdaq", "Dow")
-    _us_articles = [it for it in all_news if any(k in it.get("title","") for k in _us_kw)][:4]
-    if _us_articles:
-        print(f"  → 抓美股文章內文（{len(_us_articles)} 篇）...", end="", flush=True)
-        for it in _us_articles:
+    # 先做關鍵字評分（AI 評分尚未跑，先用關鍵字篩選值得抓內文的文章）
+    _kw_fetch = ("美股", "道瓊", "那斯達克", "收盤", "S&P", "標普", "Nasdaq", "Dow",
+                 "央行", "Fed", "聯準會", "升息", "降息", "利率", "財報", "EPS",
+                 "半導體", "台積電", "輝達", "NVIDIA", "關稅", "匯率", "AI", "人工智慧")
+    _fetch_targets = [it for it in all_news if any(k in it.get("title","") for k in _kw_fetch)][:15]
+    if _fetch_targets:
+        import concurrent.futures
+        print(f"  → 並發抓文章內文（{len(_fetch_targets)} 篇）...", end="", flush=True)
+        def _fetch_one(it):
             snippet = _fetch_article_snippet(it["url"])
-            if snippet:
-                it["snippet"] = snippet
-        print(" 完成")
+            return it, snippet
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            for it, snippet in ex.map(_fetch_one, _fetch_targets):
+                if snippet:
+                    it["snippet"] = snippet
+        got = sum(1 for it in _fetch_targets if it.get("snippet"))
+        print(f" 完成（{got}/{len(_fetch_targets)} 篇有內文）")
 
     # 1. AI 深度分析
     news_text = "\n".join(
