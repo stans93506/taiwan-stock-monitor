@@ -7234,11 +7234,17 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
     if df_qtr is not None and not df_qtr.empty:
         has_season = df_qtr.get("季度", pd.Series(dtype=str)).fillna("").str.strip() != ""
         not_skipped = ~df_qtr["股票代碼"].astype(str).str.strip().isin(QTR_SKIP_CODES)
+        # EPS、毛利率、營益率全為空 → cache 殘留的無效公告，一律剔除
+        has_fin = ~(
+            df_qtr.get("EPS", pd.Series(dtype=object)).isna() &
+            df_qtr.get("毛利率", pd.Series(dtype=object)).isna() &
+            df_qtr.get("營益率", pd.Series(dtype=object)).isna()
+        )
         before = len(df_qtr)
-        df_qtr = df_qtr[has_season & not_skipped].reset_index(drop=True)
+        df_qtr = df_qtr[has_season & not_skipped & has_fin].reset_index(drop=True)
         dropped = before - len(df_qtr)
         if dropped:
-            print(f"  ⚠ 剔除無法辨識季度的公告 {dropped} 筆")
+            print(f"  ⚠ 剔除無法辨識季度或無財務數字的公告 {dropped} 筆")
         # 每家公司只保留最新一季（依季度數值降冪，同季再依 _排序鍵 降冪取第一筆）
         if not df_qtr.empty:
             def _qnum_s(q):
