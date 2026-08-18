@@ -1298,11 +1298,18 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
             cur_shares = row["shares"]
             val = round(row["weight"] / 100 * nav) if (nav and cur_shares > 0) else 0
             # 估算每股價格：優先用 stock_data 真實收盤價，備援用持倉估算
+            # 移除股（cur_shares=0）無法用今日持倉估價，改用前日 NAV 推估
             _sd_p = (stock_data.get(sc) or {}).get("price", 0)
             if _sd_p:
                 price_est = _sd_p
+            elif cur_shares > 0:
+                price_est = val / cur_shares
+            elif row.get("is_removed") and row.get("prev_shares", 0) > 0:
+                _y_nav = (res.get("yesterday") or {}).get("nav_total") or 0
+                _prev_val = round(row.get("prev_weight", 0) / 100 * _y_nav) if _y_nav else 0
+                price_est = _prev_val / row["prev_shares"] if _prev_val else 0
             else:
-                price_est = val / cur_shares if cur_shares > 0 else 0
+                price_est = 0
             # 只有在有前日資料時才計算 delta（首日全部 is_new，不計算）
             if etf_has_prev and not row["is_new"] and not row["is_removed"]:
                 delta_s = row["delta_shares"]
@@ -1538,8 +1545,14 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
                 _sd_price = (stock_data.get(row["code"]) or {}).get("price", 0)
                 if _sd_price:
                     price_est = _sd_price
+                elif cur_shares > 0:
+                    price_est = val / cur_shares
+                elif row.get("is_removed") and row.get("prev_shares", 0) > 0:
+                    _y_nav = (res.get("yesterday") or {}).get("nav_total") or 0
+                    _prev_val = round(row.get("prev_weight", 0) / 100 * _y_nav) if _y_nav else 0
+                    price_est = _prev_val / row["prev_shares"] if _prev_val else 0
                 else:
-                    price_est = val / cur_shares if cur_shares > 0 else 0
+                    price_est = 0
                 delta_val = round(row["delta_shares"] * price_est) if price_est else 0
                 is_changed = row["delta_shares"] != 0
             else:
