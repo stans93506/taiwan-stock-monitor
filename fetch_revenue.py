@@ -3442,51 +3442,11 @@ def fetch_daily_news_analysis() -> tuple:
     if not GROQ_API_KEY:
         return "<p>⚠️ 未設定 GROQ_API_KEY</p>", all_news
 
-    # 先做關鍵字評分（AI 評分尚未跑，先用關鍵字篩選值得抓內文的文章）
-    _kw_fetch = ("美股", "道瓊", "那斯達克", "收盤", "S&P", "標普", "Nasdaq", "Dow",
-                 "央行", "Fed", "聯準會", "升息", "降息", "利率", "財報", "EPS",
-                 "半導體", "台積電", "輝達", "NVIDIA", "關稅", "匯率", "AI", "人工智慧")
-    _fetch_targets = [it for it in all_news if any(k in it.get("title","") for k in _kw_fetch)][:15]
-    if _fetch_targets:
-        import concurrent.futures
-        print(f"  → 並發抓文章內文（{len(_fetch_targets)} 篇）...", end="", flush=True)
-        def _fetch_one(it):
-            snippet = _fetch_article_snippet(it["url"])
-            return it, snippet
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-            for it, snippet in ex.map(_fetch_one, _fetch_targets):
-                if snippet:
-                    it["snippet"] = snippet
-        got = sum(1 for it in _fetch_targets if it.get("snippet"))
-        print(f" 完成（{got}/{len(_fetch_targets)} 篇有內文）")
-
-    # 1. AI 深度分析
-    news_text = "\n".join(
-        f"[{i+1}] ({item['source']}) {item['title']}" +
-        (f"\n    【內文】{item['snippet']}" if item.get('snippet') else "")
-        for i, item in enumerate(all_news)
-    )
-    user_msg = _NEWS_USER.format(
-        date=datetime.now().strftime("%Y/%m/%d"),
-        news_list=news_text,
-    )
-    print(f"  → Groq 分析（{len(all_news)} 則）...", end="", flush=True)
-    try:
-        analysis_md = _groq_post([
-            {"role": "system", "content": _NEWS_SYSTEM},
-            {"role": "user",   "content": user_msg},
-        ])
-        print(" 完成")
-    except Exception as e:
-        print(f" 失敗: {e}")
-        analysis_md = f"⚠️ Groq API 呼叫失敗：{e}"
-
-    # 2. 新聞重要性評分（稍作停頓，避免 Groq TPM rate limit）
-    time.sleep(2)
-    scores = _score_news(all_news)
+    # 步驟1：Groq 對所有標題評分
     _kw_high = ("央行", "Fed", "聯準會", "升息", "降息", "利率", "財報", "EPS", "AI", "人工智慧",
                  "半導體", "台積電", "輝達", "關稅", "制裁", "地緣", "戰爭", "匯率")
     _kw_mid  = ("產業", "營收", "獲利", "供應鏈", "景氣", "指數", "PMI", "通膨", "CPI")
+    scores = _score_news(all_news)
     for i, item in enumerate(all_news):
         ai_score = scores.get(i + 1, None)
         if ai_score is None:
@@ -3499,8 +3459,43 @@ def fetch_daily_news_analysis() -> tuple:
                 ai_score = 1
         item["score"] = ai_score
 
-    # 3. 按分數排序（高分在前，未評分排最後）
-    all_news.sort(key=lambda x: (x.get("score") is None, -(x.get("score") or 0)))
+    # 步驟2：對評分 ≥4 的文章並發抓內文（最多15篇）
+    import concurrent.futures
+    _fetch_targets = [it for it in all_news if (it.get("score") or 0) >= 4][:15]
+    if _fetch_targets:
+        print(f"  → 並發抓高分文章內文（{len(_fetch_targets)} 篇，score≥4）...", end="", flush=True)
+        def _fetch_one(it):
+            return it, _fetch_article_snippet(it["url"])
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            for it, snippet in ex.map(_fetch_one, _fetch_targets):
+                if snippet:
+                    it["snippet"] = snippet
+        got = sum(1 for it in _fetch_targets if it.get("snippet"))
+        print(f" 完成（{got}/{len(_fetch_targets)} 篇有內文）")
+
+    # 步驟3：按分數排序（高分在前）
+    all_news.sort(key=lambda x: -(x.get("score") or 0))
+
+    # 步驟4：AI 深度分析（傳入標題 + 高分文章內文）
+    news_text = "\n".join(
+        f"[{i+1}] ({item['source']}) {item['title']}" +
+        (f"\n    【內文】{item['snippet']}" if item.get('snippet') else "")
+        for i, item in enumerate(all_news)
+    )
+    user_msg = _NEWS_USER.format(
+        date=datetime.now().strftime("%Y/%m/%d"),
+        news_list=news_text,
+    )
+    print(f"  → Groq 分析（{len(all_news)} 則，含 {got if _fetch_targets else 0} 篇內文）...", end="", flush=True)
+    try:
+        analysis_md = _groq_post([
+            {"role": "system", "content": _NEWS_SYSTEM},
+            {"role": "user",   "content": user_msg},
+        ])
+        print(" 完成")
+    except Exception as e:
+        print(f" 失敗: {e}")
+        analysis_md = f"⚠️ Groq API 呼叫失敗：{e}"
 
     # 4. markdown → html
     text = re.sub(r'^## (.+)$', r'<h2>\1</h2>', analysis_md, flags=re.MULTILINE)
