@@ -3201,14 +3201,15 @@ def fetch_udn_news(limit=60) -> list:
 
 
 def fetch_cnyes_news(limit=60) -> list:
-    """爬鉅亨網 — 使用官方 JSON API，只回傳 24 小時內的新聞"""
+    """爬鉅亨網美股新聞 — JSON API category=us_stock，只回傳 24 小時內"""
     items = []
     cutoff_ts = (datetime.now() - timedelta(hours=24)).timestamp()
     try:
         resp = requests.get(
-            "https://api.cnyes.com/media/api/v1/newslist/category/all",
+            "https://api.cnyes.com/media/api/v1/newslist/category/us_stock",
             params={"page": 1, "limit": limit},
-            headers={**_NEWS_HEADERS, "Accept": "application/json"},
+            headers={**_NEWS_HEADERS, "Accept": "application/json",
+                     "Referer": "https://news.cnyes.com/"},
             timeout=15, verify=False,
         )
         resp.raise_for_status()
@@ -3216,7 +3217,7 @@ def fetch_cnyes_news(limit=60) -> list:
         for n in data.get("items", {}).get("data", []):
             ts = n.get("publishAt", 0)
             if ts and ts < cutoff_ts:
-                continue   # 超過 24 小時，略過
+                continue
             title = n.get("title", "").strip()
             nid   = n.get("newsId") or n.get("_id", "")
             href  = f"https://news.cnyes.com/news/id/{nid}" if nid else ""
@@ -3229,33 +3230,34 @@ def fetch_cnyes_news(limit=60) -> list:
 
 
 def fetch_ctee_news(limit=60) -> list:
-    """爬工商時報即時新聞"""
-    base  = "https://www.ctee.com.tw"
-    url   = f"{base}/livenews"
+    """工商時報即時新聞 — 透過 RSS feed（主站有 Cloudflare 防護）"""
     items = []
+    cutoff = datetime.now() - timedelta(hours=24)
     try:
-        resp = requests.get(url, headers=_NEWS_HEADERS, timeout=15, verify=False)
-        resp.encoding = "utf-8"
-        soup = BeautifulSoup(resp.text, "html.parser")
-        # 工商時報即時新聞常見選擇器
-        candidates = soup.select(
-            ".news-list li, .livenews-list li, .article-list li, "
-            ".list-item, [class*='live'] li, [class*='news-item']"
+        resp = requests.get(
+            "https://www.ctee.com.tw/rss_web/livenews/ctee",
+            headers=_NEWS_HEADERS, timeout=15, verify=False,
         )
-        if not candidates:
-            candidates = [el for el in soup.find_all(["li", "div"])
-                          if el.find("a", href=True) and el.get_text(strip=True)]
-        for item in candidates:
-            a = item.find("a", href=True)
-            if not a: continue
-            title = item.get_text(strip=True)
-            href  = a["href"]
-            if href.startswith("/"): href = base + href
-            if not href.startswith("http"): continue
-            t_el = item.find(class_=re.compile(r"time|date|publish"))
-            t    = t_el.get_text(strip=True) if t_el else ""
-            if title and len(title) > 5:
-                items.append({"source": "工商時報", "title": title, "url": href, "time": t})
+        resp.encoding = "utf-8"
+        soup = BeautifulSoup(resp.text, "xml")
+        for it in soup.find_all("item"):
+            title_el = it.find("title")
+            link_el  = it.find("link")
+            pub_el   = it.find("pubDate")
+            title = title_el.get_text(strip=True) if title_el else ""
+            href  = link_el.get_text(strip=True) if link_el else ""
+            pub   = pub_el.get_text(strip=True) if pub_el else ""
+            if not title or len(title) < 5 or not href:
+                continue
+            # Parse ISO 8601 pubDate
+            try:
+                dt = datetime.fromisoformat(pub)
+                if dt < cutoff:
+                    continue
+                t = dt.strftime("%m/%d %H:%M")
+            except Exception:
+                t = pub[:16]
+            items.append({"source": "工商時報", "title": title, "url": href, "time": t})
             if len(items) >= limit:
                 break
     except Exception as e:
@@ -3459,11 +3461,11 @@ def fetch_daily_news_analysis() -> tuple:
                 ai_score = 1
         item["score"] = ai_score
 
-    # 步驟2：對評分 ≥4 的文章並發抓內文（最多15篇）
+    # 步驟2：對評分 ≥3 的文章並發抓內文
     import concurrent.futures
-    _fetch_targets = [it for it in all_news if (it.get("score") or 0) >= 4][:15]
+    _fetch_targets = [it for it in all_news if (it.get("score") or 0) >= 3]
     if _fetch_targets:
-        print(f"  → 並發抓高分文章內文（{len(_fetch_targets)} 篇，score≥4）...", end="", flush=True)
+        print(f"  → 並發抓高分文章內文（{len(_fetch_targets)} 篇，score≥3）...", end="", flush=True)
         def _fetch_one(it):
             return it, _fetch_article_snippet(it["url"])
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
@@ -3486,7 +3488,7 @@ def fetch_daily_news_analysis() -> tuple:
         date=datetime.now().strftime("%Y/%m/%d"),
         news_list=news_text,
     )
-    print(f"  → Groq 分析（{len(all_news)} 則，含 {got if _fetch_targets else 0} 篇內文）...", end="", flush=True)
+    print(f"  → Groq 分析（{len(all_news)} 則，含 {got if _fetch_targets else 0} 篇內文，score≥3）...", end="", flush=True)
     try:
         analysis_md = _groq_post([
             {"role": "system", "content": _NEWS_SYSTEM},
