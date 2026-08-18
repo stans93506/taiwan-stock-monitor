@@ -3120,6 +3120,30 @@ _NEWS_HEADERS = {
     "Accept-Language": "zh-TW,zh;q=0.9",
 }
 
+def _fetch_article_snippet(url: str, max_chars: int = 400) -> str:
+    """抓文章前段內容（用於取得美股收盤具體數字），失敗回傳空字串"""
+    try:
+        resp = requests.get(url, headers=_NEWS_HEADERS, timeout=10, verify=False)
+        resp.encoding = resp.apparent_encoding or "utf-8"
+        soup = BeautifulSoup(resp.text, "html.parser")
+        # 嘗試常見文章 content selector
+        for sel in [".article-body__editor", ".article-content__editor",
+                    ".story-body", ".article-body", ".article-content",
+                    ".content-article", "[class*='articleBody']",
+                    "[class*='article-body']", "[class*='story-body']"]:
+            els = soup.select(sel)
+            if els:
+                text = els[0].get_text(separator=" ", strip=True)
+                if len(text) > 50:
+                    return text[:max_chars]
+        # fallback：取所有夠長的 <p>
+        paras = [p.get_text(strip=True) for p in soup.find_all("p")
+                 if len(p.get_text(strip=True)) > 30]
+        return " ".join(paras[:4])[:max_chars]
+    except Exception:
+        return ""
+
+
 def fetch_moneydj_news(limit=60) -> list:
     base = "https://www.moneydj.com"
     url  = f"{base}/KMDJ/News/NewsRealList.aspx?a=MB010000"
@@ -3245,11 +3269,11 @@ _NEWS_SYSTEM = """你是一位擁有20年經驗的專業投資人，深諳台灣
 
 _NEWS_USER = """以下是今日（{date}）財經新聞標題，請整理成每日早報，包含四個區塊，每區塊至少200字：
 
-⚠️ 重要限制：你只能根據下方新聞標題所提供的資訊進行分析。若標題未出現具體數字（指數點位、漲跌幅%、個股價格），請僅描述方向（如「上漲」「走高」「下跌」），絕對不可自行捏造任何具體數值。
+⚠️ 重要限制：具體數字（指數點位、漲跌幅%、個股價格）只能引用下方新聞標題或【內文】中實際出現的數據，絕對不可自行捏造任何未出現在資料中的數值。若資料中無具體數字，請僅描述方向（如「上漲」「走高」「下跌」）。
 
 ## 一、前日美股狀況
-- 重點指數漲跌（道瓊、那斯達克、S&P500）及驅動原因（數字只引用標題中實際出現的數據）
-- 重點個股表現（輝達、台積電ADR、蘋果等）與市場解讀（數字只引用標題中實際出現的數據）
+- 重點指數漲跌（道瓊、那斯達克、S&P500）及驅動原因（引用【內文】中的實際數字）
+- 重點個股表現（輝達、台積電ADR、蘋果等）與市場解讀（引用【內文】中的實際數字）
 - 深度分析：對台灣哪些產業鏈、供應商族群影響最大，邏輯為何
 
 ## 二、全球市場走勢 & 總經
@@ -3418,9 +3442,21 @@ def fetch_daily_news_analysis() -> tuple:
     if not GROQ_API_KEY:
         return "<p>⚠️ 未設定 GROQ_API_KEY</p>", all_news
 
+    # 對美股/收盤相關文章抓內文摘要（最多 4 篇，用於給 Groq 真實數字）
+    _us_kw = ("美股", "道瓊", "那斯達克", "收盤", "S&P", "標普", "Nasdaq", "Dow")
+    _us_articles = [it for it in all_news if any(k in it.get("title","") for k in _us_kw)][:4]
+    if _us_articles:
+        print(f"  → 抓美股文章內文（{len(_us_articles)} 篇）...", end="", flush=True)
+        for it in _us_articles:
+            snippet = _fetch_article_snippet(it["url"])
+            if snippet:
+                it["snippet"] = snippet
+        print(" 完成")
+
     # 1. AI 深度分析
     news_text = "\n".join(
-        f"[{i+1}] ({item['source']}) {item['title']}"
+        f"[{i+1}] ({item['source']}) {item['title']}" +
+        (f"\n    【內文】{item['snippet']}" if item.get('snippet') else "")
         for i, item in enumerate(all_news)
     )
     user_msg = _NEWS_USER.format(
