@@ -3245,9 +3245,11 @@ _NEWS_SYSTEM = """你是一位擁有20年經驗的專業投資人，深諳台灣
 
 _NEWS_USER = """以下是今日（{date}）財經新聞標題，請整理成每日早報，包含四個區塊，每區塊至少200字：
 
+⚠️ 重要限制：你只能根據下方新聞標題所提供的資訊進行分析。若標題未出現具體數字（指數點位、漲跌幅%、個股價格），請僅描述方向（如「上漲」「走高」「下跌」），絕對不可自行捏造任何具體數值。
+
 ## 一、前日美股狀況
-- 重點指數漲跌（道瓊、那斯達克、S&P500）及驅動原因
-- 重點個股表現（輝達、台積電ADR、蘋果等）與市場解讀
+- 重點指數漲跌（道瓊、那斯達克、S&P500）及驅動原因（數字只引用標題中實際出現的數據）
+- 重點個股表現（輝達、台積電ADR、蘋果等）與市場解讀（數字只引用標題中實際出現的數據）
 - 深度分析：對台灣哪些產業鏈、供應商族群影響最大，邏輯為何
 
 ## 二、全球市場走勢 & 總經
@@ -3338,13 +3340,19 @@ def _score_news(all_news: list) -> dict:
         print(f"  → Groq 評分（{len(all_news)} 則）...", end="", flush=True)
         raw = _groq_post([{"role": "user", "content": prompt}], temperature=0.1,
                          model="llama-3.1-8b-instant")
-        # 擷取 JSON
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        # 擷取 JSON（取最長的 {...} 段落）
+        m = re.search(r'\{[\s\S]*\}', raw)
         if m:
             data = json.loads(m.group())
-            scores = {int(k): int(v) for k, v in data.get("scores", {}).items()}
-            print(" 完成")
+            scores = {}
+            for k, v in data.get("scores", {}).items():
+                try:
+                    scores[int(k)] = max(0, min(5, int(float(v))))
+                except (ValueError, TypeError):
+                    pass
+            print(f" 完成（{len(scores)}/{len(all_news)} 則有分數）")
             return scores
+        print(" 回傳格式異常")
     except Exception as e:
         print(f" 失敗: {e}")
     return {}
@@ -3433,8 +3441,20 @@ def fetch_daily_news_analysis() -> tuple:
     # 2. 新聞重要性評分（稍作停頓，避免 Groq TPM rate limit）
     time.sleep(2)
     scores = _score_news(all_news)
+    _kw_high = ("央行", "Fed", "聯準會", "升息", "降息", "利率", "財報", "EPS", "AI", "人工智慧",
+                 "半導體", "台積電", "輝達", "關稅", "制裁", "地緣", "戰爭", "匯率")
+    _kw_mid  = ("產業", "營收", "獲利", "供應鏈", "景氣", "指數", "PMI", "通膨", "CPI")
     for i, item in enumerate(all_news):
-        item["score"] = scores.get(i + 1, None)
+        ai_score = scores.get(i + 1, None)
+        if ai_score is None:
+            t = item.get("title", "")
+            if any(k in t for k in _kw_high):
+                ai_score = 4
+            elif any(k in t for k in _kw_mid):
+                ai_score = 3
+            else:
+                ai_score = 1
+        item["score"] = ai_score
 
     # 3. 按分數排序（高分在前，未評分排最後）
     all_news.sort(key=lambda x: (x.get("score") is None, -(x.get("score") or 0)))
