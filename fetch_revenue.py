@@ -945,16 +945,21 @@ def _extract_season(subject: str, text: str) -> str:
     q_map = {"一": "1", "二": "2", "三": "3", "四": "4"}
     cn_map = {"一": "1", "二": "2", "三": "3", "四": "4", "五": "5",
               "六": "6", "七": "7", "八": "8", "九": "9", "〇": "0", "零": "0"}
-    m = re.search(r"(\d{3})年.*?第([一二三四1-4])季", subject)
+    combined = subject + " " + text[:500]
+    m = re.search(r"(\d{3})年.*?第([一二三四1-4])季", combined)
     if m:
         q = q_map.get(m.group(2), m.group(2))
         return f"{m.group(1)}Q{q}"
     # 中文數字年份：一一五年第二季 → 115Q2
-    m = re.search(r"([一二三四五六七八九〇零]+)年.*?第([一二三四1-4])季", subject)
+    m = re.search(r"([一二三四五六七八九〇零]+)年.*?第([一二三四1-4])季", combined)
     if m:
         yr = "".join(cn_map.get(c, c) for c in m.group(1))
         q = q_map.get(m.group(2), m.group(2))
         return f"{yr}Q{q}"
+    # 上半年度 → Q2
+    m = re.search(r"(\d{3})年.*?上半年", combined)
+    if m:
+        return f"{m.group(1)}Q2"
     # 用起訖日期的【結束月】判季（Q2起始月也是01，必須看結束月才正確）
     m2 = re.search(r"起訖日期[^0-9]*\d{3}/\d{2}/\d{2}[~至～～\-]\s*(\d{3})/(\d{2})/", text)
     if m2:
@@ -6816,8 +6821,10 @@ def fetch_t05st02() -> tuple:
             other_r = round((pretax - oper) / abs(pretax) * 100, 2) \
                       if (pretax and oper is not None and pretax != 0) else None
 
-            # 二層過濾：EPS、毛利率、營益率全部沒有 → 公告內無財務數字，略過
-            if eps is None and gross_r is None and oper_r is None:
+            # 二層過濾：文字完全抓不到且 desc 也不含財務關鍵字 → 非財報公告，略過
+            # 「董事會通過財務報告」等只有決議文字而無數字的公告仍保留（顯示為 —）
+            _has_fin_kw = any(k in p["desc"] for k in ("財務報告", "財務報表", "合併財務", "合併財報"))
+            if eps is None and gross_r is None and oper_r is None and not _has_fin_kw:
                 print(f"\n        [{code}] 無財務數字，略過（{p['desc'][:30]}）")
                 continue
 
