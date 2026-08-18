@@ -3125,7 +3125,7 @@ _NEWS_HEADERS = {
     "Accept-Language": "zh-TW,zh;q=0.9",
 }
 
-def _fetch_article_snippet(url: str, max_chars: int = 400) -> str:
+def _fetch_article_snippet(url: str, max_chars: int = 250) -> str:
     """抓文章前段內容（用於取得美股收盤具體數字），失敗回傳空字串"""
     try:
         resp = requests.get(url, headers=_NEWS_HEADERS, timeout=10, verify=False)
@@ -3483,17 +3483,18 @@ def fetch_daily_news_analysis() -> tuple:
     # 步驟3：按分數排序（高分在前）
     all_news.sort(key=lambda x: -(x.get("score") or 0))
 
-    # 步驟4：AI 深度分析（傳入標題 + 高分文章內文）
+    # 步驟4：AI 深度分析（只傳 score≥3 的文章，避免 Groq 413 payload too large）
+    analysis_news = [it for it in all_news if (it.get("score") or 0) >= 3]
     news_text = "\n".join(
         f"[{i+1}] ({item['source']}) {item['title']}" +
         (f"\n    【內文】{item['snippet']}" if item.get('snippet') else "")
-        for i, item in enumerate(all_news)
+        for i, item in enumerate(analysis_news)
     )
     user_msg = _NEWS_USER.format(
         date=datetime.now().strftime("%Y/%m/%d"),
         news_list=news_text,
     )
-    print(f"  → Groq 分析（{len(all_news)} 則，含 {got if _fetch_targets else 0} 篇內文，score≥3）...", end="", flush=True)
+    print(f"  → Groq 分析（score≥3 共 {len(analysis_news)} 則，含 {got if _fetch_targets else 0} 篇內文）...", end="", flush=True)
     try:
         analysis_md = _groq_post([
             {"role": "system", "content": _NEWS_SYSTEM},
