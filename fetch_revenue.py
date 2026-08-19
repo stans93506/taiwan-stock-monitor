@@ -3486,7 +3486,20 @@ def fetch_daily_news_analysis() -> tuple:
 
     # 步驟4：AI 深度分析
     # score≥4：標題 + 400 字內文；score=3：標題；score≤2：不進分析
-    analysis_news = [it for it in all_news if (it.get("score") or 0) >= 3]
+    # 依高分優先累積，超過 20,000 字元截止（避免 Groq 413）
+    _NEWS_CHAR_LIMIT = 20_000
+    analysis_news = []
+    _chars = 0
+    for _it in all_news:
+        if (_it.get("score") or 0) < 3:
+            continue
+        _line = f"[{len(analysis_news)+1}] ({_it['source']}) {_it['title']}"
+        if _it.get("snippet"):
+            _line += f"\n    【內文】{_it['snippet']}"
+        if _chars + len(_line) > _NEWS_CHAR_LIMIT:
+            break
+        analysis_news.append(_it)
+        _chars += len(_line)
     news_text = "\n".join(
         f"[{i+1}] ({item['source']}) {item['title']}" +
         (f"\n    【內文】{item['snippet']}" if item.get('snippet') else "")
@@ -3496,7 +3509,7 @@ def fetch_daily_news_analysis() -> tuple:
         date=datetime.now().strftime("%Y/%m/%d"),
         news_list=news_text,
     )
-    print(f"  → Groq 分析（score≥3 共 {len(analysis_news)} 則，含 {got if _fetch_targets else 0} 篇內文）...", end="", flush=True)
+    print(f"  → Groq 分析（score≥3 取 {len(analysis_news)} 則 / {_chars} 字，含 {got if _fetch_targets else 0} 篇內文）...", end="", flush=True)
     try:
         analysis_md = _groq_post([
             {"role": "system", "content": _NEWS_SYSTEM},
