@@ -2480,6 +2480,13 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
         if m_bt:
             eps = _parse_num(m_bt.group(1))
 
+    # ── 「每股盈餘」純文字格式（如3081聯亞：每股盈餘(元)(除權後追溯調整)  2.07 ...）──
+    # label 後可能有多個括號標記，再接空白，再取第一個數字（最近一月）
+    if eps is None:
+        m_per = re.search(r'每股盈餘(?:\([^)]*\))*\s+(-?[\d.,]+|\(-?[\d.,]+\))', text)
+        if m_per:
+            eps = _parse_num(m_per.group(1))
+
     # ── 裕融格式：EPS(元) 欄位標頭 + 數值行（第51款，取月份段第4欄 = 未追溯調整EPS）──
     # 格式：稅前 稅後 歸屬母公司股東 EPS(元) EPS(元)(註)
     #       523.9  407.2  410.5  0.68  0.67
