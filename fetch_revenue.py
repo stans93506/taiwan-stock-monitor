@@ -5066,7 +5066,7 @@ $(document).ready(function() {{
         var dataPct = Math.floor(88 / qtrs.length);
         var hdr = '<tr><td style="width:12%;text-align:left;color:var(--muted);font-weight:600;border-right:1px solid var(--border)">指標</td>';
         for (var i=0; i<qtrs.length; i++)
-          hdr += '<td style="width:'+dataPct+'%;font-weight:700">'+qtrs[i].q+'</td>';
+          hdr += '<td style="width:'+dataPct+'%;font-weight:700;text-align:right">'+qtrs[i].q+'</td>';
         hdr += '</tr>';
         var defs = [
           ['季EPS',        function(d){{return _fmtMthEps(d.eps);}}],
@@ -5077,7 +5077,7 @@ $(document).ready(function() {{
         var tbody = '';
         for (var ri=0; ri<defs.length; ri++) {{
           tbody += '<tr><td style="text-align:left;color:var(--muted);border-right:1px solid var(--border)">'+defs[ri][0]+'</td>';
-          for (var qi=0; qi<qtrs.length; qi++) tbody += '<td>'+defs[ri][1](qtrs[qi])+'</td>';
+          for (var qi=0; qi<qtrs.length; qi++) tbody += '<td style="text-align:right">'+defs[ri][1](qtrs[qi])+'</td>';
           tbody += '</tr>';
         }}
         rightHtml += '<table class="qtr-detail-table" style="table-layout:fixed;width:100%"><thead>'+hdr+'</thead><tbody>'+tbody+'</tbody></table>';
