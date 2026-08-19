@@ -2425,7 +2425,7 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
             label = cells[0].get_text(strip=True)
             if "稀釋" in label or "面額" in label:
                 continue
-            _is_per = "每股" in label and ("盈餘" in label or "純益" in label or "淨利" in label)
+            _is_per = "每股" in label and ("盈餘" in label or "純益" in label or "淨利" in label or "損益" in label or "收益" in label)
             if _is_per:
                 _is_at = "稅後" in label
                 _is_bt = "稅前" in label and not _is_at
@@ -2453,17 +2453,21 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
                         break
         eps = eps_at_tbl if eps_at_tbl is not None else (eps_bt_tbl if eps_bt_tbl is not None else eps_gen_tbl)
 
-    # ── 「每股淨利」格式（金融業月自結常用）：稅後優先，再抓稅前 ──
-    # 例：「5月份稅後淨利...每股淨利0.88元。」
+    # ── 「每股淨利/損益」格式（金融業、生技業月自結常用）：稅後優先，再抓稅前 ──
+    # 例：「5月份稅後淨利...每股淨利0.88元。」或「每股損益(0.23)元」
     if eps is None:
-        m_at = re.search(r'稅後[^\n]{0,80}每股淨利[^\d（\(]{0,5}(\d[\d.,]*)', text)
+        m_at = re.search(r'稅後[^\n]{0,80}每股(?:淨利|損益)[^\d（\(－\-]{0,5}(-?[\d.,]+|\(-?[\d.,]+\))', text)
         if m_at:
             eps = _parse_num(m_at.group(1))
     if eps is None:
-        # 稅前版本 fallback（沒有稅後才用）
-        m_bt = re.search(r'稅前[^\n]{0,80}每股淨利[^\d（\(]{0,5}(\d[\d.,]*)', text)
+        m_bt = re.search(r'稅前[^\n]{0,80}每股(?:淨利|損益)[^\d（\(－\-]{0,5}(-?[\d.,]+|\(-?[\d.,]+\))', text)
         if m_bt:
             eps = _parse_num(m_bt.group(1))
+    if eps is None:
+        # 無稅前/稅後標記直接出現每股損益（如：每股損益(0.23)元）
+        m_gen = re.search(r'每股損益[^\d（\(－\-]{0,5}(-?[\d.,]+|\(-?[\d.,]+\))', text)
+        if m_gen:
+            eps = _parse_num(m_gen.group(1))
 
     # ── 「稅後/稅前EPS」格式（如3293鈊象：稅前EPS為4.55元）：稅後優先 ──
     # 允許 EPS 後緊接 (元)/（元） 標籤（如6021格式：稅後EPS(元)   2.51）
