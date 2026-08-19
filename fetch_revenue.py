@@ -4553,24 +4553,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
       </div>
       <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover table-sm mb-0" id="borrowTable">
-            <thead class="table-dark sticky-top">
-              <tr>
-                <th>市場</th><th>標借日期</th><th>代號</th><th>名稱</th>
-                <th class="text-end">標借數量</th>
-                <th class="text-end">最高標借單價</th>
-                <th class="text-end">得標數量</th>
-                <th class="text-end">最低得標單價</th>
-                <th class="text-end">最高得標單價</th>
-                <th class="text-end">不足數量</th>
-              </tr>
-            </thead>
-            <tbody>
-              {borrow_rows}
-            </tbody>
-          </table>
-        </div>
+        <table class="table table-hover table-sm mb-0 w-100" id="borrowTable" style="font-size:.83rem">
+          <thead class="table-dark sticky-top">
+            <tr>
+              <th>市場</th><th>標借日期</th><th>代號</th><th>名稱</th>
+              <th class="text-end">標借數量</th>
+              <th class="text-end">標借單價</th>
+              <th class="text-end">得標數量</th>
+              <th class="text-end">最低得標</th>
+              <th class="text-end">最高得標</th>
+              <th class="text-end">不足數量</th>
+            </tr>
+          </thead>
+          <tbody>
+            {borrow_rows}
+          </tbody>
+        </table>
       </div>
     </div>
     <div class="mt-2" style="font-size:.78rem;color:var(--muted)">
