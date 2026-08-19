@@ -4577,6 +4577,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       資料來源：<a href="https://www.twse.com.tw/zh/trading/bfib8u.html" target="_blank" style="color:var(--muted)">TWSE 上市標借</a>、
       <a href="https://www.tpex.org.tw/zh-tw/mainboard/trading/margin-trading/borrowing.html" target="_blank" style="color:var(--muted)">TPEx 上櫃標借</a>
     </div>
+    <div class="mt-1" style="font-size:.78rem;color:var(--muted)">
+      說明：得標數量、最低得標單價、最高得標單價、不足數量於每日中午開標後提供。
+    </div>
   </div>
 
 </div>
@@ -4622,6 +4625,7 @@ function switchTab(id, btn) {{
   if (id === 'event')    {{ _adj('#eventTable'); }}
   if (id === 'etf')      {{ _adj('#etfStockTable'); _adj('#etfChangeTable'); _adj('#etfFundTable'); }}
   if (id === 'spo')      {{ _adj('#spoTable'); }}
+  if (id === 'borrow')   {{ _adj('#borrowTable'); }}
 }}
 
 // ── 月自結封存公告 toggle（全域，供 onclick 存取）──
@@ -5311,6 +5315,21 @@ $(document).ready(function() {{
     }});
     _refreshSortIcons(dtChange);
     $('#etfChangeTable').on('order.dt', function() {{ _refreshSortIcons($(this).DataTable()); }});
+  }}
+
+  // ── 標借表 ──
+  if($('#borrowTable').length) {{
+    $('#borrowTable').DataTable({{
+      paging: false, fixedHeader: true,
+      order: [[0,'desc'],[2,'asc']],
+      language: {{ search:'搜尋：', info:'第 _START_-_END_ 筆，共 _TOTAL_ 筆',
+                   zeroRecords:'今日無標借資料' }},
+      columnDefs: [
+        {{ targets: [4,5,6,7,8,9], className: 'text-end' }},
+      ],
+    }});
+    // 隱藏內建搜尋（已有自訂搜尋框）
+    $('#borrowTable_filter').hide();
   }}
 
   // ── 現增表 ──
@@ -6202,15 +6221,19 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
 
     # ── 標借 ──
     _borrow = borrow_data or []
-    _mkt_cls = {"上市": "badge bg-primary", "上櫃": "badge bg-success"}
+    _mkt_badge = {
+        "上市": "<span class='badge bg-primary'>上市</span>",
+        "上櫃": "<span class='badge' style='background:#7c3aed'>上櫃</span>",
+    }
     _borrow_rows_list = []
     for _b in _borrow:
-        _cls = _mkt_cls.get(_b.get("市場", ""), "badge bg-secondary")
+        _mkt = _b.get("市場", "")
+        _badge = _mkt_badge.get(_mkt, f"<span class='badge bg-secondary'>{_mkt}</span>")
         _insuf = _b.get("不足數量", "0")
         _insuf_cls = " style='color:#ef5350;font-weight:600'" if str(_insuf).strip() not in ("0", "", "-") else ""
         _borrow_rows_list.append(
             f"<tr>"
-            f"<td><span class='{_cls}'>{_b.get('市場','')}</span></td>"
+            f"<td>{_badge}</td>"
             f"<td>{_b.get('標借日期','')}</td>"
             f"<td style='color:#4fc3f7;font-weight:700'>{_b.get('代號','')}</td>"
             f"<td>{_b.get('名稱','')}</td>"
