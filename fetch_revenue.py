@@ -2425,7 +2425,7 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
             label = cells[0].get_text(strip=True)
             if "稀釋" in label or "面額" in label:
                 continue
-            _is_per = "每股" in label and ("盈餘" in label or "純益" in label or "淨利" in label)
+            _is_per = "每股" in label and ("盈餘" in label or "純益" in label or "淨利" in label or "損益" in label or "收益" in label)
             if _is_per:
                 _is_at = "稅後" in label
                 _is_bt = "稅前" in label and not _is_at
@@ -2453,17 +2453,21 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
                         break
         eps = eps_at_tbl if eps_at_tbl is not None else (eps_bt_tbl if eps_bt_tbl is not None else eps_gen_tbl)
 
-    # ── 「每股淨利」格式（金融業月自結常用）：稅後優先，再抓稅前 ──
-    # 例：「5月份稅後淨利...每股淨利0.88元。」
+    # ── 「每股淨利/損益」格式（金融業、生技業月自結常用）：稅後優先，再抓稅前 ──
+    # 例：「5月份稅後淨利...每股淨利0.88元。」或「每股損益(0.23)元」
     if eps is None:
-        m_at = re.search(r'稅後[^\n]{0,80}每股淨利[^\d（\(]{0,5}(\d[\d.,]*)', text)
+        m_at = re.search(r'稅後[^\n]{0,80}每股(?:淨利|損益)[^\d（\(－\-]{0,5}(-?[\d.,]+|\(-?[\d.,]+\))', text)
         if m_at:
             eps = _parse_num(m_at.group(1))
     if eps is None:
-        # 稅前版本 fallback（沒有稅後才用）
-        m_bt = re.search(r'稅前[^\n]{0,80}每股淨利[^\d（\(]{0,5}(\d[\d.,]*)', text)
+        m_bt = re.search(r'稅前[^\n]{0,80}每股(?:淨利|損益)[^\d（\(－\-]{0,5}(-?[\d.,]+|\(-?[\d.,]+\))', text)
         if m_bt:
             eps = _parse_num(m_bt.group(1))
+    if eps is None:
+        # 無稅前/稅後標記直接出現每股損益（如：每股損益(0.23)元）
+        m_gen = re.search(r'每股損益[^\d（\(－\-]{0,5}(-?[\d.,]+|\(-?[\d.,]+\))', text)
+        if m_gen:
+            eps = _parse_num(m_gen.group(1))
 
     # ── 「稅後/稅前EPS」格式（如3293鈊象：稅前EPS為4.55元）：稅後優先 ──
     # 允許 EPS 後緊接 (元)/（元） 標籤（如6021格式：稅後EPS(元)   2.51）
@@ -2475,6 +2479,13 @@ def _parse_monthly_detail(text: str, html: str = "") -> dict:
         m_bt = re.search(r'稅前EPS(?:[（(]元[）)])?[^\d（\(－-]{0,40}(-?[\d.]+)', text)
         if m_bt:
             eps = _parse_num(m_bt.group(1))
+
+    # ── 「每股盈餘」純文字格式（如3081聯亞：每股盈餘(元)(除權後追溯調整)  2.07 ...）──
+    # label 後可能有多個括號標記，再接空白，再取第一個數字（最近一月）
+    if eps is None:
+        m_per = re.search(r'每股盈餘(?:\([^)]*\))*\s+(-?[\d.,]+|\(-?[\d.,]+\))', text)
+        if m_per:
+            eps = _parse_num(m_per.group(1))
 
     # ── 裕融格式：EPS(元) 欄位標頭 + 數值行（第51款，取月份段第4欄 = 未追溯調整EPS）──
     # 格式：稅前 稅後 歸屬母公司股東 EPS(元) EPS(元)(註)
@@ -5055,7 +5066,7 @@ $(document).ready(function() {{
         var dataPct = Math.floor(88 / qtrs.length);
         var hdr = '<tr><td style="width:12%;text-align:left;color:var(--muted);font-weight:600;border-right:1px solid var(--border)">指標</td>';
         for (var i=0; i<qtrs.length; i++)
-          hdr += '<td style="width:'+dataPct+'%;font-weight:700">'+qtrs[i].q+'</td>';
+          hdr += '<td style="width:'+dataPct+'%;font-weight:700;text-align:right">'+qtrs[i].q+'</td>';
         hdr += '</tr>';
         var defs = [
           ['季EPS',        function(d){{return _fmtMthEps(d.eps);}}],
@@ -5066,7 +5077,7 @@ $(document).ready(function() {{
         var tbody = '';
         for (var ri=0; ri<defs.length; ri++) {{
           tbody += '<tr><td style="text-align:left;color:var(--muted);border-right:1px solid var(--border)">'+defs[ri][0]+'</td>';
-          for (var qi=0; qi<qtrs.length; qi++) tbody += '<td>'+defs[ri][1](qtrs[qi])+'</td>';
+          for (var qi=0; qi<qtrs.length; qi++) tbody += '<td style="text-align:right">'+defs[ri][1](qtrs[qi])+'</td>';
           tbody += '</tr>';
         }}
         rightHtml += '<table class="qtr-detail-table" style="table-layout:fixed;width:100%"><thead>'+hdr+'</thead><tbody>'+tbody+'</tbody></table>';

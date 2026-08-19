@@ -964,7 +964,7 @@ def _today_snapshot_exists(etf_code: str) -> bool:
 
 def save_snapshot(data: dict) -> Path:
     path = _snapshot_path(data["etf_code"], data["date"])
-    data.setdefault("fetch_time", datetime.now().strftime("%H:%M"))
+    data.setdefault("fetch_time", (datetime.utcnow() + timedelta(hours=8)).strftime("%H:%M"))
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return path
