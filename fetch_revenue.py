@@ -3281,6 +3281,81 @@ def fetch_ctee_news(limit=60) -> list:
     return items
 
 
+def fetch_borrow_auction() -> list:
+    """
+    抓取上市（TWSE）及上櫃（TPEx）當日標借得標明細。
+    回傳 list of dict：{市場, 標借日期, 代號, 名稱, 標借數量, 最高標借單價,
+                        得標數量, 最低得標單價, 最高得標單價, 不足數量}
+    """
+    _H = {**_NEWS_HEADERS, "Accept": "application/json, text/javascript, */*; q=0.01"}
+    rows: list = []
+
+    # ── TWSE 上市 ──
+    try:
+        r = requests.get(
+            "https://www.twse.com.tw/exchangeReport/BFIB8U?response=json",
+            headers=_H, timeout=15, verify=False,
+        )
+        r.raise_for_status()
+        for tbl in r.json().get("tables", []):
+            if "明細" not in tbl.get("title", ""):
+                continue
+            fields = tbl.get("fields", [])
+            for row in tbl.get("data", []):
+                d = dict(zip(fields, row))
+                rows.append({
+                    "市場":       "上市",
+                    "標借日期":   d.get("標借日期", "").replace(".", "/"),
+                    "代號":       d.get("證券代號", "").strip(),
+                    "名稱":       d.get("證券名稱", "").strip(),
+                    "標借數量":   d.get("標借數量", ""),
+                    "最高標借單價": d.get("最高標借單價", ""),
+                    "得標數量":   d.get("得標數量", ""),
+                    "最低得標單價": d.get("最低得標單價", ""),
+                    "最高得標單價": d.get("最高得標單價", ""),
+                    "不足數量":   d.get("不足數量", ""),
+                })
+    except Exception as e:
+        print(f"  標借 TWSE 抓取失敗: {e}")
+
+    # ── TPEx 上櫃 ──
+    try:
+        r = requests.post(
+            "https://www.tpex.org.tw/www/zh-tw/margin/lend",
+            headers={**_H,
+                     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                     "X-Requested-With": "XMLHttpRequest",
+                     "Referer": "https://www.tpex.org.tw/zh-tw/mainboard/trading/margin-trading/borrowing.html",
+                     "Origin": "https://www.tpex.org.tw"},
+            data={}, timeout=15, verify=False,
+        )
+        r.raise_for_status()
+        tbl = r.json().get("tables", [{}])[0]
+        for row in tbl.get("data", []):
+            # 標定單價格式：「0.8000~1.5000」→ 拆成最低/最高
+            price_range = str(row[7]) if len(row) > 7 else ""
+            if "~" in price_range:
+                lo, hi = price_range.split("~", 1)
+            else:
+                lo = hi = price_range
+            rows.append({
+                "市場":       "上櫃",
+                "標借日期":   str(row[0]),
+                "代號":       str(row[1]).strip(),
+                "名稱":       str(row[2]).strip(),
+                "標借數量":   str(row[4]),
+                "最高標借單價": str(row[5]),
+                "得標數量":   str(row[6]),
+                "最低得標單價": lo.strip(),
+                "最高得標單價": hi.strip(),
+                "不足數量":   str(row[8]) if len(row) > 8 else "",
+            })
+    except Exception as e:
+        print(f"  標借 TPEx 抓取失敗: {e}")
+
+    return rows
+
+
 _NEWS_SYSTEM = """你是一位擁有20年經驗的專業投資人，深諳台灣及全球股市、總體經濟與產業鏈研究。
 請以專業投資人的視角，對今日新聞進行深度解讀，分析背後的產業邏輯、供應鏈影響與投資機會。
 回答用繁體中文，條列式呈現，分析要具體深入，不可流於表面。不需附任何連結。"""
@@ -4273,6 +4348,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <button class="tab-btn" onclick="switchTab('event', this)">📅 事件</button>
   <button class="tab-btn" onclick="switchTab('etf', this)">📈 主動ETF</button>
   <button class="tab-btn" onclick="switchTab('spo', this)">現增</button>
+  <button class="tab-btn" onclick="switchTab('borrow', this)">標借</button>
 </div>
 
 <div class="container-fluid px-4 py-3">
@@ -4466,6 +4542,43 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- ═══ 標借分頁 ═══ -->
+  <div id="tab-borrow" class="tab-pane">
+    <div class="card">
+      <div class="card-header px-3 py-2 fw-bold d-flex align-items-center gap-2">
+        <span>標借得標明細</span>
+        <span id="borrowCount" class="fw-normal text-muted" style="font-size:.85rem">{borrow_count}</span>
+        <div class="ms-auto d-flex gap-2 align-items-center" style="font-size:.82rem">
+          <input id="borrowSearch" type="text" class="form-control form-control-sm" style="width:160px" placeholder="搜尋代號/名稱" oninput="onBorrowSearch(this.value)">
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover table-sm mb-0" id="borrowTable">
+            <thead class="table-dark sticky-top">
+              <tr>
+                <th>市場</th><th>標借日期</th><th>代號</th><th>名稱</th>
+                <th class="text-end">標借數量</th>
+                <th class="text-end">最高標借單價</th>
+                <th class="text-end">得標數量</th>
+                <th class="text-end">最低得標單價</th>
+                <th class="text-end">最高得標單價</th>
+                <th class="text-end">不足數量</th>
+              </tr>
+            </thead>
+            <tbody>
+              {borrow_rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="mt-2" style="font-size:.78rem;color:var(--muted)">
+      資料來源：<a href="https://www.twse.com.tw/zh/trading/bfib8u.html" target="_blank" style="color:var(--muted)">TWSE 上市標借</a>、
+      <a href="https://www.tpex.org.tw/zh-tw/mainboard/trading/margin-trading/borrowing.html" target="_blank" style="color:var(--muted)">TPEx 上櫃標借</a>
+    </div>
+  </div>
+
 </div>
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -4483,7 +4596,7 @@ function switchTab(id, btn) {{
   btn.classList.add('active');
   // 先把所有表格的 FixedHeader 停用，避免不同 tab 的表頭互相疊錯
   var _all = ['#revTable','#qtrTable','#trsTable','#monthlyTable','#eventTable',
-              '#etfStockTable','#etfChangeTable','#etfFundTable','#spoTable'];
+              '#etfStockTable','#etfChangeTable','#etfFundTable','#spoTable','#borrowTable'];
   _all.forEach(function(s) {{
     if ($.fn.DataTable.isDataTable(s)) {{
       var _dt = $(s).DataTable();
@@ -5396,6 +5509,18 @@ function toggleEtfChangedOnly() {{
   }}
   $('#etfChangeTable').DataTable().draw();
 }}
+
+// ── 標借搜尋 ──
+function onBorrowSearch(val) {{
+  var q = val.trim().toLowerCase();
+  $('#borrowTable tbody tr').each(function() {{
+    var t = $(this).text().toLowerCase();
+    $(this).toggle(q === '' || t.indexOf(q) >= 0);
+  }});
+  var vis = $('#borrowTable tbody tr:visible').length;
+  var tot = $('#borrowTable tbody tr').length;
+  $('#borrowCount').text(vis === tot ? tot + ' 筆' : vis + ' / ' + tot + ' 筆');
+}}
 </script>
 </body>
 </html>
@@ -5415,7 +5540,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                   rev_hist_cache: dict = None,
                   prev_full_lookup: dict = None,
                   rev_archive: dict = None,
-                  qtr_history: dict = None) -> str:
+                  qtr_history: dict = None,
+                  borrow_data: list = None) -> str:
     updated = _tw_now().strftime("%Y-%m-%d %H:%M")
     rev_period      = f"民國 {roc_year} 年 {month} 月"
     rev_period_disp = f"{roc_year + 1911}/{month:02d}"   # e.g. "2026/05"
@@ -6074,6 +6200,31 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         '</div>'
     )
 
+    # ── 標借 ──
+    _borrow = borrow_data or []
+    _mkt_cls = {"上市": "badge bg-primary", "上櫃": "badge bg-success"}
+    _borrow_rows_list = []
+    for _b in _borrow:
+        _cls = _mkt_cls.get(_b.get("市場", ""), "badge bg-secondary")
+        _insuf = _b.get("不足數量", "0")
+        _insuf_cls = " style='color:#ef5350;font-weight:600'" if str(_insuf).strip() not in ("0", "", "-") else ""
+        _borrow_rows_list.append(
+            f"<tr>"
+            f"<td><span class='{_cls}'>{_b.get('市場','')}</span></td>"
+            f"<td>{_b.get('標借日期','')}</td>"
+            f"<td style='color:#4fc3f7;font-weight:700'>{_b.get('代號','')}</td>"
+            f"<td>{_b.get('名稱','')}</td>"
+            f"<td class='text-end'>{_b.get('標借數量','')}</td>"
+            f"<td class='text-end'>{_b.get('最高標借單價','')}</td>"
+            f"<td class='text-end'>{_b.get('得標數量','')}</td>"
+            f"<td class='text-end'>{_b.get('最低得標單價','')}</td>"
+            f"<td class='text-end'>{_b.get('最高得標單價','')}</td>"
+            f"<td class='text-end'{_insuf_cls}>{_insuf}</td>"
+            f"</tr>"
+        )
+    borrow_rows = "\n".join(_borrow_rows_list) if _borrow_rows_list else "<tr><td colspan='10' class='text-center text-muted py-3'>今日無標借資料</td></tr>"
+    borrow_count = f"{len(_borrow)} 筆" if _borrow else "今日無資料"
+
     return HTML_TEMPLATE.format(
         updated=updated, rev_period=rev_period,
         rev_period_disp=rev_period_disp, rev_total=rev_total, rev_latest=rev_latest,
@@ -6102,6 +6253,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         etf_html=etf_html or "<div class='text-muted p-3'>ETF 資料尚未取得</div>",
         spo_count=spo_count,
         spo_content=spo_content,
+        borrow_rows=borrow_rows,
+        borrow_count=borrow_count,
         rev_hist_json=rev_hist_json,
         rev_archive_json=rev_archive_json,
         rev_month_dropdown=rev_month_dropdown,
@@ -7579,6 +7732,14 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         print(f"  ⚠ ETF 追蹤失敗：{e}")
         _etf_html = ""
 
+    print("\n【標借得標明細】")
+    try:
+        _borrow_data = fetch_borrow_auction()
+        print(f"  上市 {sum(1 for b in _borrow_data if b['市場']=='上市')} 筆 / 上櫃 {sum(1 for b in _borrow_data if b['市場']=='上櫃')} 筆")
+    except Exception as e:
+        print(f"  ⚠ 標借抓取失敗：{e}")
+        _borrow_data = []
+
     print("📝 產生報表...")
     print("  [歷史月營收] 確認 cache...")
     _code_market: dict = {}
@@ -7686,7 +7847,8 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          rev_hist_cache=_rev_hist,
                          prev_full_lookup=prev_full_lookup,
                          rev_archive=_rev_archive,
-                         qtr_history=_cqdata)
+                         qtr_history=_cqdata,
+                         borrow_data=_borrow_data)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
     # 同步寫一份 index.html 供 HTTP server 使用（避免 bat 需要含中文的 copy 指令）
