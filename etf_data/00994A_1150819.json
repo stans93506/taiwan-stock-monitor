@@ -19,15 +19,15 @@
       "weight": 7.94
     },
     {
-      "code": "3037",
-      "name": "欣興",
-      "shares": 289001,
-      "weight": 6.48
-    },
-    {
       "code": "3017",
       "name": "奇鋐",
       "shares": 105500,
+      "weight": 6.48
+    },
+    {
+      "code": "3037",
+      "name": "欣興",
+      "shares": 289001,
       "weight": 6.48
     },
     {
@@ -229,5 +229,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "15:59"
+  "fetch_time": "16:20"
 }
