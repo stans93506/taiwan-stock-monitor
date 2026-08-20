@@ -92,6 +92,8 @@ TRS_CACHE_FILE     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "t
 QTR_CACHE_FILE     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_cache.json")
 QTR_ARCHIVE_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_archive.json")
 QTR_ARCHIVE_SEASONS = 1   # 保留最近 N 個封存季度（不含當季）
+BORROW_CACHE_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "borrow_data")
+BORROW_KEEP_DAYS   = 7    # 標借歷史保留天數
 EVENT_CACHE_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "event_cache.json")
 HIST_PRICE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hist_price_cache.json")
 NEWS_TS_FILE       = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_fetch_ts.json")
@@ -3360,6 +3362,53 @@ def fetch_borrow_auction() -> list:
     return rows
 
 
+def save_borrow_cache(rows: list) -> None:
+    """將今日標借資料存檔，並清理超過 BORROW_KEEP_DAYS 的舊檔。"""
+    os.makedirs(BORROW_CACHE_DIR, exist_ok=True)
+    today_key = _tw_now().strftime("%Y%m%d")
+    path = os.path.join(BORROW_CACHE_DIR, f"{today_key}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(rows, f, ensure_ascii=False)
+    # 清理舊檔
+    cutoff = (_tw_now() - timedelta(days=BORROW_KEEP_DAYS)).strftime("%Y%m%d")
+    for fname in os.listdir(BORROW_CACHE_DIR):
+        if fname.endswith(".json") and fname[:8] < cutoff:
+            try:
+                os.remove(os.path.join(BORROW_CACHE_DIR, fname))
+            except Exception:
+                pass
+
+
+def load_borrow_history() -> tuple:
+    """
+    載入 borrow_data/ 內所有快取檔，回傳：
+      avail_dates: list of {"key": "20260820", "label": "115/08/20"}  (最新在前)
+      history:     dict  {key: [row, ...]}
+    """
+    avail_dates, history = [], {}
+    if not os.path.isdir(BORROW_CACHE_DIR):
+        return avail_dates, history
+    files = sorted(
+        [f for f in os.listdir(BORROW_CACHE_DIR) if f.endswith(".json")],
+        reverse=True,
+    )[:BORROW_KEEP_DAYS]
+    for fname in files:
+        key = fname[:8]  # "20260820"
+        try:
+            yy = int(key[:4]) - 1911
+            mm, dd = key[4:6], key[6:8]
+            label = f"{yy}/{mm}/{dd}"
+        except Exception:
+            label = key
+        try:
+            with open(os.path.join(BORROW_CACHE_DIR, fname), encoding="utf-8") as f:
+                history[key] = json.load(f)
+            avail_dates.append({"key": key, "label": label})
+        except Exception:
+            pass
+    return avail_dates, history
+
+
 _NEWS_SYSTEM = """你是一位擁有20年經驗的專業投資人，深諳台灣及全球股市、總體經濟與產業鏈研究。
 請以專業投資人的視角，對今日新聞進行深度解讀，分析背後的產業邏輯、供應鏈影響與投資機會。
 回答用繁體中文，條列式呈現，分析要具體深入，不可流於表面。不需附任何連結。"""
@@ -4552,6 +4601,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="card-header px-3 py-2 fw-bold d-flex align-items-center gap-2">
         <span>標借得標明細</span>
         <span id="borrowCount" class="fw-normal text-muted" style="font-size:.85rem">{borrow_count}</span>
+        {borrow_date_select}
         <div class="ms-auto d-flex gap-2 align-items-center" style="font-size:.82rem">
           <input id="borrowSearch" type="text" class="form-control form-control-sm" style="width:160px" placeholder="搜尋代號/名稱" oninput="onBorrowSearch(this.value)">
         </div>
@@ -5542,6 +5592,52 @@ function onBorrowSearch(val) {{
   var tot = $('#borrowTable tbody tr').length;
   $('#borrowCount').text(vis === tot ? tot + ' 筆' : vis + ' / ' + tot + ' 筆');
 }}
+
+// ── 標借日期切換 ──
+(function() {{
+  var _BORROW_HIST = {borrow_history_json};
+  var _MKT_BADGE = {{
+    '上市': "<span class='badge bg-primary'>上市</span>",
+    '上櫃': "<span class='badge' style='background:#7c3aed'>上櫃</span>",
+  }};
+  function _renderBorrowRows(rows) {{
+    var html = '';
+    rows.forEach(function(b) {{
+      var mkt = b['市場'] || '';
+      var badge = _MKT_BADGE[mkt] || "<span class='badge bg-secondary'>" + mkt + "</span>";
+      var insuf = b['不足數量'] || '0';
+      var insufStyle = (insuf !== '0' && insuf !== '' && insuf !== '-') ? " style='color:#ef5350;font-weight:600'" : '';
+      html += '<tr>' +
+        '<td>' + badge + '</td>' +
+        '<td>' + (b['標借日期']||'') + '</td>' +
+        '<td style="color:#4fc3f7;font-weight:700">' + (b['代號']||'') + '</td>' +
+        '<td>' + (b['名稱']||'') + '</td>' +
+        '<td class="text-end">' + (b['標借數量']||'') + '</td>' +
+        '<td class="text-end">' + (b['最高標借單價']||'') + '</td>' +
+        '<td class="text-end">' + (b['得標數量']||'') + '</td>' +
+        '<td class="text-end">' + (b['最低得標單價']||'') + '</td>' +
+        '<td class="text-end">' + (b['最高得標單價']||'') + '</td>' +
+        '<td class="text-end"' + insufStyle + '>' + insuf + '</td>' +
+        '</tr>';
+    }});
+    return html;
+  }}
+  window.borrowSelectDate = function(key) {{
+    var rows = _BORROW_HIST[key] || [];
+    var dt = $('#borrowTable').DataTable();
+    dt.destroy();
+    $('#borrowTable tbody').html(_renderBorrowRows(rows));
+    $('#borrowCount').text(rows.length ? rows.length + ' 筆' : '無資料');
+    $('#borrowSearch').val('');
+    // re-init DataTable
+    $('#borrowTable').DataTable({{
+      paging: false, fixedHeader: false,
+      order: [[0,'desc'],[2,'asc']],
+      language: {{search:'搜尋：', info:'第 _START_-_END_ 筆，共 _TOTAL_ 筆', zeroRecords:'無標借資料'}},
+      columnDefs: [{{ targets: [4,5,6,7,8,9], className: 'text-end' }}],
+    }});
+  }};
+}})();
 </script>
 </body>
 </html>
@@ -5562,7 +5658,9 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                   prev_full_lookup: dict = None,
                   rev_archive: dict = None,
                   qtr_history: dict = None,
-                  borrow_data: list = None) -> str:
+                  borrow_data: list = None,
+                  borrow_avail_dates: list = None,
+                  borrow_history: dict = None) -> str:
     updated = _tw_now().strftime("%Y-%m-%d %H:%M")
     rev_period      = f"民國 {roc_year} 年 {month} 月"
     rev_period_disp = f"{roc_year + 1911}/{month:02d}"   # e.g. "2026/05"
@@ -6222,33 +6320,54 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
     )
 
     # ── 標借 ──
+    _borrow_avail = borrow_avail_dates or []
+    _borrow_hist  = borrow_history or {}
     _borrow = borrow_data or []
-    _mkt_badge = {
-        "上市": "<span class='badge bg-primary'>上市</span>",
-        "上櫃": "<span class='badge' style='background:#7c3aed'>上櫃</span>",
-    }
-    _borrow_rows_list = []
-    for _b in _borrow:
-        _mkt = _b.get("市場", "")
-        _badge = _mkt_badge.get(_mkt, f"<span class='badge bg-secondary'>{_mkt}</span>")
-        _insuf = _b.get("不足數量", "0")
-        _insuf_cls = " style='color:#ef5350;font-weight:600'" if str(_insuf).strip() not in ("0", "", "-") else ""
-        _borrow_rows_list.append(
-            f"<tr>"
-            f"<td>{_badge}</td>"
-            f"<td>{_b.get('標借日期','')}</td>"
-            f"<td style='color:#4fc3f7;font-weight:700'>{_b.get('代號','')}</td>"
-            f"<td>{_b.get('名稱','')}</td>"
-            f"<td class='text-end'>{_b.get('標借數量','')}</td>"
-            f"<td class='text-end'>{_b.get('最高標借單價','')}</td>"
-            f"<td class='text-end'>{_b.get('得標數量','')}</td>"
-            f"<td class='text-end'>{_b.get('最低得標單價','')}</td>"
-            f"<td class='text-end'>{_b.get('最高得標單價','')}</td>"
-            f"<td class='text-end'{_insuf_cls}>{_insuf}</td>"
-            f"</tr>"
-        )
-    borrow_rows = "\n".join(_borrow_rows_list)  # 空字串時由 DataTables zeroRecords 顯示
+
+    def _borrow_rows_html(rows):
+        _mkt_badge = {
+            "上市": "<span class='badge bg-primary'>上市</span>",
+            "上櫃": "<span class='badge' style='background:#7c3aed'>上櫃</span>",
+        }
+        parts = []
+        for _b in rows:
+            _mkt   = _b.get("市場", "")
+            _badge = _mkt_badge.get(_mkt, f"<span class='badge bg-secondary'>{_mkt}</span>")
+            _insuf = _b.get("不足數量", "0")
+            _insuf_cls = " style='color:#ef5350;font-weight:600'" if str(_insuf).strip() not in ("0", "", "-") else ""
+            parts.append(
+                f"<tr>"
+                f"<td>{_badge}</td>"
+                f"<td>{_b.get('標借日期','')}</td>"
+                f"<td style='color:#4fc3f7;font-weight:700'>{_b.get('代號','')}</td>"
+                f"<td>{_b.get('名稱','')}</td>"
+                f"<td class='text-end'>{_b.get('標借數量','')}</td>"
+                f"<td class='text-end'>{_b.get('最高標借單價','')}</td>"
+                f"<td class='text-end'>{_b.get('得標數量','')}</td>"
+                f"<td class='text-end'>{_b.get('最低得標單價','')}</td>"
+                f"<td class='text-end'>{_b.get('最高得標單價','')}</td>"
+                f"<td class='text-end'{_insuf_cls}>{_insuf}</td>"
+                f"</tr>"
+            )
+        return "\n".join(parts)
+
+    borrow_rows  = _borrow_rows_html(_borrow)
     borrow_count = f"{len(_borrow)} 筆" if _borrow else "今日無資料"
+
+    # 日期下拉
+    if _borrow_avail:
+        _bopts = "".join(
+            f'<option value="{d["key"]}">{d["label"]}</option>'
+            for d in _borrow_avail
+        )
+        borrow_date_select = (
+            '<select id="borrowDateSelect" class="form-select form-select-sm d-inline-block" '
+            'style="width:auto;min-width:110px;background-color:#2a2a3e;color:#e0e0e0;border-color:#555" '
+            f'onchange="borrowSelectDate(this.value)">{_bopts}</select>'
+        )
+    else:
+        borrow_date_select = ""
+    borrow_history_json = json.dumps(_borrow_hist, ensure_ascii=False)
 
     return HTML_TEMPLATE.format(
         updated=updated, rev_period=rev_period,
@@ -6280,6 +6399,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         spo_content=spo_content,
         borrow_rows=borrow_rows,
         borrow_count=borrow_count,
+        borrow_date_select=borrow_date_select,
+        borrow_history_json=borrow_history_json,
         rev_hist_json=rev_hist_json,
         rev_archive_json=rev_archive_json,
         rev_month_dropdown=rev_month_dropdown,
@@ -7761,9 +7882,12 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
     try:
         _borrow_data = fetch_borrow_auction()
         print(f"  上市 {sum(1 for b in _borrow_data if b['市場']=='上市')} 筆 / 上櫃 {sum(1 for b in _borrow_data if b['市場']=='上櫃')} 筆")
+        if _borrow_data:
+            save_borrow_cache(_borrow_data)
     except Exception as e:
         print(f"  ⚠ 標借抓取失敗：{e}")
         _borrow_data = []
+    _borrow_avail_dates, _borrow_history = load_borrow_history()
 
     print("📝 產生報表...")
     print("  [歷史月營收] 確認 cache...")
@@ -7873,7 +7997,9 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          prev_full_lookup=prev_full_lookup,
                          rev_archive=_rev_archive,
                          qtr_history=_cqdata,
-                         borrow_data=_borrow_data)
+                         borrow_data=_borrow_data,
+                         borrow_avail_dates=_borrow_avail_dates,
+                         borrow_history=_borrow_history)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
     # 同步寫一份 index.html 供 HTTP server 使用（避免 bat 需要含中文的 copy 指令）
