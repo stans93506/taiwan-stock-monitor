@@ -3296,13 +3296,35 @@ def fetch_borrow_auction() -> list:
     try:
         r = requests.get(
             "https://www.twse.com.tw/exchangeReport/BFIB8U?response=json",
-            headers=_H, timeout=15, verify=False,
+            headers={**_H,
+                     "Referer": "https://www.twse.com.tw/zh/trading/bfib8u.html",
+                     "Origin": "https://www.twse.com.tw"},
+            timeout=25, verify=False,
         )
         r.raise_for_status()
         _twse_json = r.json()
         _twse_tbls = _twse_json.get("tables", [])
+        _twse_stat  = _twse_json.get("stat", "")
         _twse_titles = [t.get("title", "") for t in _twse_tbls]
-        print(f"  標借 TWSE stat={_twse_json.get('stat')} tables={_twse_titles}")
+        _twse_rows  = sum(len(t.get("data", [])) for t in _twse_tbls)
+        print(f"  標借 TWSE stat={_twse_stat} tables={len(_twse_tbls)} total_rows={_twse_rows}")
+        # 如果收到回應但沒有資料，等一下再重試一次
+        if _twse_stat == "OK" and _twse_rows == 0:
+            import time as _time
+            _time.sleep(5)
+            r2 = requests.get(
+                "https://www.twse.com.tw/exchangeReport/BFIB8U?response=json",
+                headers={**_H,
+                         "Referer": "https://www.twse.com.tw/zh/trading/bfib8u.html",
+                         "Origin": "https://www.twse.com.tw"},
+                timeout=25, verify=False,
+            )
+            r2.raise_for_status()
+            _twse_json2 = r2.json()
+            _twse_tbls2 = _twse_json2.get("tables", [])
+            if sum(len(t.get("data", [])) for t in _twse_tbls2) > 0:
+                _twse_tbls = _twse_tbls2
+                print(f"  標借 TWSE 重試成功 rows={sum(len(t.get('data',[])) for t in _twse_tbls)}")
         for tbl in _twse_tbls:
             if "明細" not in tbl.get("title", ""):
                 continue
