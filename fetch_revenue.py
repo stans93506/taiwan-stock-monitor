@@ -3573,7 +3573,7 @@ def fetch_daily_news_analysis() -> tuple:
     # 步驟4：AI 深度分析
     # score≥4：標題 + 400 字內文；score=3：標題；score≤2：不進分析
     # 依高分優先累積，超過 20,000 字元截止（避免 Groq 413）
-    _NEWS_CHAR_LIMIT = 20_000
+    _NEWS_CHAR_LIMIT = 8_000
     analysis_news = []
     _chars = 0
     for _it in all_news:
