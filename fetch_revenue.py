@@ -6243,7 +6243,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             f"<td class='text-end'{_insuf_cls}>{_insuf}</td>"
             f"</tr>"
         )
-    borrow_rows = "\n".join(_borrow_rows_list) if _borrow_rows_list else "<tr><td colspan='10' class='text-center text-muted py-3'>今日無標借資料</td></tr>"
+    borrow_rows = "\n".join(_borrow_rows_list)  # 空字串時由 DataTables zeroRecords 顯示
     borrow_count = f"{len(_borrow)} 筆" if _borrow else "今日無資料"
 
     return HTML_TEMPLATE.format(
