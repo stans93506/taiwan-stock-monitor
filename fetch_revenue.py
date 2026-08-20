@@ -3297,7 +3297,11 @@ def fetch_borrow_auction() -> list:
             headers=_H, timeout=15, verify=False,
         )
         r.raise_for_status()
-        for tbl in r.json().get("tables", []):
+        _twse_json = r.json()
+        _twse_tbls = _twse_json.get("tables", [])
+        _twse_titles = [t.get("title", "") for t in _twse_tbls]
+        print(f"  標借 TWSE stat={_twse_json.get('stat')} tables={_twse_titles}")
+        for tbl in _twse_tbls:
             if "明細" not in tbl.get("title", ""):
                 continue
             fields = tbl.get("fields", [])
