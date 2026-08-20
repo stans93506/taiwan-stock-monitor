@@ -3292,20 +3292,11 @@ def fetch_borrow_auction() -> list:
     _H = {**_NEWS_HEADERS, "Accept": "application/json, text/javascript, */*; q=0.01"}
     rows: list = []
 
-    # ── TWSE 上市 ──
+    # ── TWSE 上市（透過 Cloudflare Worker 代理，繞過台灣 IP 限制）──
     try:
-        _twse_sess = requests.Session()
-        _twse_sess.verify = False
-        # 先訪問頁面取得 session cookie（境外 IP 需要）
-        _twse_sess.get("https://www.twse.com.tw/zh/trading/bfib8u.html",
-                       headers=_H, timeout=20)
-        r = _twse_sess.get(
-            "https://www.twse.com.tw/exchangeReport/BFIB8U?response=json",
-            headers={**_H,
-                     "Referer": "https://www.twse.com.tw/zh/trading/bfib8u.html",
-                     "Accept": "application/json, text/javascript, */*; q=0.01",
-                     "X-Requested-With": "XMLHttpRequest"},
-            timeout=25,
+        r = requests.get(
+            "https://nameless-frog-f045.ssss44882000.workers.dev",
+            headers=_H, timeout=25, verify=False,
         )
         r.raise_for_status()
         _twse_json = r.json()
@@ -7897,20 +7888,6 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
     except Exception as e:
         print(f"  ⚠ 標借抓取失敗：{e}")
         _borrow_data = []
-    # 若本次抓不完整（TWSE 境外封鎖），補上快取的今日資料
-    _today_key = _tw_now().strftime("%Y%m%d")
-    _cached_path = os.path.join(BORROW_CACHE_DIR, f"{_today_key}.json")
-    if not any(b.get("市場") == "上市" for b in _borrow_data) and os.path.exists(_cached_path):
-        try:
-            with open(_cached_path, encoding="utf-8") as _f:
-                _cached = json.load(_f)
-            # 合併：保留本次抓到的上櫃，加上快取的上市
-            _cached_listed = [b for b in _cached if b.get("市場") == "上市"]
-            if _cached_listed:
-                _borrow_data = _cached_listed + [b for b in _borrow_data if b.get("市場") == "上櫃"]
-                print(f"  ↩ 補上快取上市資料 {len(_cached_listed)} 筆")
-        except Exception as _ce:
-            print(f"  ⚠ 讀取標借快取失敗: {_ce}")
     _borrow_avail_dates, _borrow_history = load_borrow_history()
 
     print("📝 產生報表...")
