@@ -3658,14 +3658,15 @@ def fetch_daily_news_analysis() -> tuple:
                 ai_score = 1
         item["score"] = ai_score
 
-    # 步驟2：score≥4 抓 400 字內文，score=3 不抓（標題已足夠）
+    # 步驟2：score≥4 抓內文（本地抓 5000 字供匯出；雲端 Groq 分析時截回 400 字）
     import concurrent.futures
     _fetch_targets = [it for it in all_news if (it.get("score") or 0) >= 4]
+    _snippet_full_chars = 5000   # 本地輸出用；Groq 分析時另行截斷
     got = 0
     if _fetch_targets:
         print(f"  → 並發抓高分文章內文（{len(_fetch_targets)} 篇，score≥4）...", end="", flush=True)
         def _fetch_one(it):
-            return it, _fetch_article_snippet(it["url"])
+            return it, _fetch_article_snippet(it["url"], max_chars=_snippet_full_chars)
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
             for it, snippet in ex.map(_fetch_one, _fetch_targets):
                 if snippet:
@@ -3701,7 +3702,7 @@ def fetch_daily_news_analysis() -> tuple:
             continue
         _line = f"[{len(analysis_news)+1}] ({_it['source']}) {_it['title']}"
         if _it.get("snippet"):
-            _line += f"\n    【內文】{_it['snippet']}"
+            _line += f"\n    【內文】{_it['snippet'][:400]}"  # Groq 分析截回 400 字
         if _chars + len(_line) > _NEWS_CHAR_LIMIT:
             break
         analysis_news.append(_it)
