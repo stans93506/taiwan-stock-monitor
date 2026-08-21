@@ -3676,6 +3676,20 @@ def fetch_daily_news_analysis() -> tuple:
     # 步驟3：按分數排序（高分在前）
     all_news.sort(key=lambda x: -(x.get("score") or 0))
 
+    # 本地執行時輸出 score≥4 的標題＋內文供手動 AI 分析
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        _high = [it for it in all_news if (it.get("score") or 0) >= 4]
+        _out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_high_score.txt")
+        with open(_out_path, "w", encoding="utf-8") as _f:
+            _f.write(f"=== 高分新聞（score≥4）{datetime.now().strftime('%Y/%m/%d %H:%M')} ===\n")
+            _f.write(f"共 {len(_high)} 篇\n\n")
+            for _i, _it in enumerate(_high, 1):
+                _f.write(f"[{_i}] score={_it.get('score')} ({_it['source']}) {_it['title']}\n")
+                if _it.get("snippet"):
+                    _f.write(f"【內文】{_it['snippet']}\n")
+                _f.write("\n")
+        print(f"  → 本地模式：高分新聞已輸出至 news_high_score.txt（{len(_high)} 篇）")
+
     # 步驟4：AI 深度分析
     # score≥4：標題 + 400 字內文；score=3：標題；score≤2：不進分析
     # 依高分優先累積，超過 20,000 字元截止（避免 Groq 413）
