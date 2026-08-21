@@ -3,7 +3,7 @@
   "etf_name": "主動摩根台灣鑫收",
   "date": "115/08/20",
   "nav_per_unit": 13.38,
-  "nav_total": 3195469891.0,
+  "nav_total": 3187014004.0,
   "units": 238895000.0,
   "holdings": [
     {
@@ -385,5 +385,5 @@
       "weight": 0.0284
     }
   ],
-  "fetch_time": "15:46"
+  "fetch_time": "16:20"
 }
