@@ -8179,6 +8179,23 @@ if __name__ == "__main__":
             # 不論是否新抓，都更新 cached_news（保持最新一次的結果）
             if result is not None:
                 cached_news = result
+            # 本地執行：每次都輸出高分新聞（不論新抓或快取）
+            if os.environ.get("GITHUB_ACTIONS") != "true" and cached_news is not None:
+                try:
+                    _ni = cached_news[1] if isinstance(cached_news, tuple) else []
+                    _high = [it for it in _ni if (it.get("score") or 0) >= 4]
+                    _out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_high_score.txt")
+                    with open(_out_path, "w", encoding="utf-8") as _f:
+                        _f.write(f"=== 高分新聞（score≥4）{_tw_now().strftime('%Y/%m/%d %H:%M')} 台灣時間 ===\n")
+                        _f.write(f"共 {len(_high)} 篇\n\n")
+                        for _idx, _it in enumerate(_high, 1):
+                            _f.write(f"[{_idx}] score={_it.get('score')} ({_it['source']}) {_it['title']}\n")
+                            if _it.get("snippet"):
+                                _f.write(f"【內文】{_it['snippet']}\n")
+                            _f.write("\n")
+                    print(f"  → news_high_score.txt 已更新（{len(_high)} 篇 score≥4）")
+                except Exception:
+                    pass
             if news_due:
                 last_news_fetch = fetch_ts
                 # 持久化時間戳：下次重啟時不重複呼叫 Groq
