@@ -3510,7 +3510,7 @@ def _score_news(all_news: list) -> dict:
     try:
         print(f"  → Groq 評分（{len(all_news)} 則）...", end="", flush=True)
         raw = _groq_post([{"role": "user", "content": prompt}], temperature=0.1,
-                         model="llama-3.1-8b-instant")
+                         model="llama-3.3-70b-versatile")
         # 擷取 JSON（取最長的 {...} 段落）
         m = re.search(r'\{[\s\S]*\}', raw)
         if m:

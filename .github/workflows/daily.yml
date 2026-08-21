@@ -38,7 +38,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f index.html 台股監測.html *.json etf_data/
+          git add -f index.html 台股監測.html *.json etf_data/ borrow_data/
           git diff --cached --quiet || git commit -m "自動更新：$(date '+%Y-%m-%d %H:%M') UTC"
           git fetch origin main
           git merge -X ours origin/main --no-edit || true
