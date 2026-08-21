@@ -95,6 +95,8 @@ QTR_ARCHIVE_SEASONS = 1   # 保留最近 N 個封存季度（不含當季）
 BORROW_CACHE_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "borrow_data")
 BORROW_KEEP_DAYS   = 7    # 標借歷史保留天數
 EVENT_CACHE_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "event_cache.json")
+QTR_RSS_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_rss_cache.json")
+QTR_RSS_KEEP_DAYS  = 7   # RSS 快取保留天數
 HIST_PRICE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hist_price_cache.json")
 NEWS_TS_FILE       = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_fetch_ts.json")
 NEWS_CONTENT_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_content_cache.json")
@@ -1098,8 +1100,8 @@ def _parse_pubdate(pub: str):
 
 
 def _parse_rss_title(title: str):
-    """'(4304)勝昱-重大訊息' → ('4304', '勝昱')"""
-    m = re.match(r'\((\w+)\)(.+?)(?:-重大訊息)?$', title.strip())
+    """'(4304)勝昱-公開資訊觀測站' 或 '(4304)勝昱-重大訊息' → ('4304', '勝昱')"""
+    m = re.match(r'\((\w+)\)(.+?)(?:-重大訊息|-公開資訊觀測站)?$', title.strip())
     return (m.group(1), m.group(2)) if m else ("", title.strip())
 
 
@@ -1237,18 +1239,47 @@ def _parse_eps(text: str) -> float | None:
     return None
 
 
+def _load_qtr_rss_cache() -> dict:
+    """載入 RSS 快取 {link_url: row_dict}，並清除超過保留天數的項目"""
+    try:
+        with open(QTR_RSS_CACHE_FILE, encoding="utf-8") as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+    cutoff = (_tw_now() - timedelta(days=QTR_RSS_KEEP_DAYS)).strftime("%Y%m%d")
+    cache = {k: v for k, v in cache.items()
+             if str(v.get("_排序鍵", ""))[:8] >= cutoff}
+    return cache
+
+
+def _save_qtr_rss_cache(cache: dict) -> None:
+    try:
+        with open(QTR_RSS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
 def fetch_qtr_rss() -> pd.DataFrame:
-    """從 MOPS RSS 抓季報公告，含精確時間與完整財務數字"""
+    """從 MOPS RSS 抓季報公告，含精確時間與完整財務數字。
+    快取已處理過的 item，避免因 RSS 滾動視窗錯過公告。"""
+    rss_cache = _load_qtr_rss_cache()
+
     try:
         r = requests.get(QTR_RSS_URL, headers=HEADERS, timeout=15, verify=False)
         soup = BeautifulSoup(r.content, "xml")
     except Exception as e:
         print(f"  RSS 抓取失敗: {e}")
+        # RSS 掛了仍可從快取回傳近期資料
+        if rss_cache:
+            df = pd.DataFrame(list(rss_cache.values()))
+            return df.sort_values("_排序鍵", ascending=False).reset_index(drop=True)
         return pd.DataFrame()
 
     items = soup.find_all("item")
     rows = []
     qtr_keywords = ["季", "財務報告", "財務報表", "合併財務"]
+    new_cached = 0
 
     for item in items:
         title    = item.find("title").text     if item.find("title")       else ""
@@ -1258,6 +1289,10 @@ def fetch_qtr_rss() -> pd.DataFrame:
         link_url = link_tag.text.strip()       if link_tag               else ""
 
         if not any(k in (title + desc) for k in qtr_keywords):
+            continue
+
+        # 已快取 → 直接用快取資料，不重複抓 detail 頁
+        if link_url and link_url in rss_cache:
             continue
 
         code, name = _parse_rss_title(title)
@@ -1294,7 +1329,7 @@ def fetch_qtr_rss() -> pd.DataFrame:
         other_r = round((pretax - oper) / abs(pretax) * 100, 2) \
                   if (pretax and oper is not None and pretax != 0) else None
 
-        rows.append({
+        row = {
             "市場":     market,
             "股票代碼": code,
             "公司名稱": name,
@@ -1312,7 +1347,24 @@ def fetch_qtr_rss() -> pd.DataFrame:
             "業外%":    other_r,
             "稅後淨利": net,
             "原文":     text,
-        })
+        }
+        rows.append(row)
+        if link_url:
+            rss_cache[link_url] = row
+            new_cached += 1
+
+    # 存回快取
+    if new_cached:
+        _save_qtr_rss_cache(rss_cache)
+        print(f"  RSS 快取新增 {new_cached} 筆")
+
+    # 合併快取中的歷史資料（本次 RSS 已不含但快取仍在保留期內的）
+    seen_keys = {r["_排序鍵"][:8] + r["股票代碼"] for r in rows}
+    for cached_row in rss_cache.values():
+        key = cached_row.get("_排序鍵", "")[:8] + cached_row.get("股票代碼", "")
+        if key not in seen_keys:
+            rows.append(cached_row)
+            seen_keys.add(key)
 
     if not rows:
         return pd.DataFrame()
