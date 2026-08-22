@@ -217,15 +217,15 @@
       "weight": 0.02
     },
     {
-      "code": "9941",
-      "name": "裕融",
-      "shares": 11000,
-      "weight": 0.02
-    },
-    {
       "code": "2449",
       "name": "京元電子",
       "shares": 4000,
+      "weight": 0.02
+    },
+    {
+      "code": "9941",
+      "name": "裕融",
+      "shares": 11000,
       "weight": 0.02
     },
     {
@@ -235,5 +235,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "17:37"
+  "fetch_time": "18:01"
 }
