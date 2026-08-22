@@ -1628,7 +1628,14 @@ def generate_etf_html(etf_results: dict[str, dict]) -> str:
         })
 
     # ── 存今日彙整快照（供歷史日期下拉使用）──────────────────────────
-    _today_suffix = f"{datetime.today().year - 1911}{datetime.today().month:02d}{datetime.today().day:02d}"
+    # 用資料本身的日期（非日曆今天），非交易日執行時會蓋回同一個交易日檔，不新增空頁
+    _data_dates = [res["today"]["date"] for res in etf_results.values()
+                   if res.get("today") and res["today"].get("date")]
+    if _data_dates:
+        _ref_date = max(_data_dates)          # e.g. "115/08/21"
+        _today_suffix = _ref_date.replace("/", "")  # → "1150821"
+    else:
+        _today_suffix = f"{datetime.today().year - 1911}{datetime.today().month:02d}{datetime.today().day:02d}"
     _summary_path = DATA_DIR / f"summary_{_today_suffix}.json"
     try:
         _summary_path.write_text(json.dumps({

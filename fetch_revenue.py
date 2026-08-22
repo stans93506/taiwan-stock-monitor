@@ -3194,7 +3194,8 @@ def _fetch_article_snippet(url: str, max_chars: int = 400) -> str:
     """抓文章前段內容（用於取得美股收盤具體數字），失敗回傳空字串"""
     try:
         resp = requests.get(url, headers=_NEWS_HEADERS, timeout=10, verify=False)
-        resp.encoding = resp.apparent_encoding or "utf-8"
+        enc = (resp.apparent_encoding or "utf-8").lower()
+        resp.encoding = enc if enc.startswith(("utf", "big5", "gb")) else "utf-8"
         soup = BeautifulSoup(resp.text, "html.parser")
         # 嘗試常見文章 content selector
         for sel in [".article-body__editor", ".article-content__editor",
@@ -3206,10 +3207,16 @@ def _fetch_article_snippet(url: str, max_chars: int = 400) -> str:
                 text = els[0].get_text(separator=" ", strip=True)
                 if len(text) > 50:
                     return text[:max_chars]
-        # fallback：取所有夠長的 <p>
+        # fallback：取所有夠長的 <p>，盡量抓滿 max_chars
         paras = [p.get_text(strip=True) for p in soup.find_all("p")
                  if len(p.get_text(strip=True)) > 30]
-        return " ".join(paras[:4])[:max_chars]
+        result = ""
+        for p in paras:
+            candidate = (result + " " + p).strip()
+            if len(candidate) > max_chars:
+                break
+            result = candidate
+        return result[:max_chars]
     except Exception:
         return ""
 
@@ -3418,8 +3425,24 @@ def fetch_borrow_auction() -> list:
 def save_borrow_cache(rows: list) -> None:
     """將今日標借資料存檔，並清理超過 BORROW_KEEP_DAYS 的舊檔。"""
     os.makedirs(BORROW_CACHE_DIR, exist_ok=True)
-    today_key = _tw_now().strftime("%Y%m%d")
-    path = os.path.join(BORROW_CACHE_DIR, f"{today_key}.json")
+    # 用資料本身的日期命名，非交易日執行時蓋回同一交易日，不新增空頁
+    _dates = [r.get("標借日期", "") for r in rows if r.get("標借日期")]
+    if _dates:
+        _roc = max(_dates)          # "115/08/21"
+        _p = _roc.split("/")
+        cache_key = f"{int(_p[0]) + 1911}{_p[1]}{_p[2]}" if len(_p) == 3 else _tw_now().strftime("%Y%m%d")
+    else:
+        cache_key = _tw_now().strftime("%Y%m%d")
+    path = os.path.join(BORROW_CACHE_DIR, f"{cache_key}.json")
+    # 若舊檔資料更完整（筆數更多），保留舊檔，不覆蓋
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as _f:
+                _existing = json.load(_f)
+            if len(rows) <= len(_existing):
+                return
+        except Exception:
+            pass
     with open(path, "w", encoding="utf-8") as f:
         json.dump(rows, f, ensure_ascii=False)
     # 清理舊檔
@@ -6419,14 +6442,20 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             )
         return "\n".join(parts)
 
+    # 若今日無資料但有歷史，自動顯示最近一筆歷史資料
+    _init_borrow_key = ""
+    if not _borrow and _borrow_avail and _borrow_hist:
+        _init_borrow_key = _borrow_avail[0]["key"]
+        _borrow = _borrow_hist.get(_init_borrow_key, [])
+
     borrow_rows  = _borrow_rows_html(_borrow)
     borrow_count = f"{len(_borrow)} 筆" if _borrow else "今日無資料"
 
     # 日期下拉
     if _borrow_avail:
         _bopts = "".join(
-            f'<option value="{d["key"]}">{d["label"]}</option>'
-            for d in _borrow_avail
+            f'<option value="{d["key"]}"{"  selected" if d["key"] == _init_borrow_key or (not _init_borrow_key and i == 0) else ""}>{d["label"]}</option>'
+            for i, d in enumerate(_borrow_avail)
         )
         borrow_date_select = (
             '<select id="borrowDateSelect" class="form-select form-select-sm d-inline-block" '
