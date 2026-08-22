@@ -73,15 +73,15 @@
       "weight": 3.2
     },
     {
-      "code": "3711",
-      "name": "日月光投控",
-      "shares": 232002,
-      "weight": 2.74
-    },
-    {
       "code": "2345",
       "name": "智邦",
       "shares": 67000,
+      "weight": 2.74
+    },
+    {
+      "code": "3711",
+      "name": "日月光投控",
+      "shares": 232002,
       "weight": 2.74
     },
     {
@@ -235,5 +235,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "17:08"
+  "fetch_time": "17:37"
 }
