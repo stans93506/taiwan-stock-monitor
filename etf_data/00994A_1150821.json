@@ -73,15 +73,15 @@
       "weight": 3.2
     },
     {
-      "code": "2345",
-      "name": "智邦",
-      "shares": 67000,
-      "weight": 2.74
-    },
-    {
       "code": "3711",
       "name": "日月光投控",
       "shares": 232002,
+      "weight": 2.74
+    },
+    {
+      "code": "2345",
+      "name": "智邦",
+      "shares": 67000,
       "weight": 2.74
     },
     {
@@ -133,15 +133,15 @@
       "weight": 1.01
     },
     {
-      "code": "6187",
-      "name": "萬潤",
-      "shares": 39000,
-      "weight": 0.94
-    },
-    {
       "code": "6239",
       "name": "力成",
       "shares": 175000,
+      "weight": 0.94
+    },
+    {
+      "code": "6187",
+      "name": "萬潤",
+      "shares": 39000,
       "weight": 0.94
     },
     {
@@ -211,12 +211,6 @@
       "weight": 0.09
     },
     {
-      "code": "2449",
-      "name": "京元電子",
-      "shares": 4000,
-      "weight": 0.02
-    },
-    {
       "code": "2404",
       "name": "漢唐",
       "shares": 1000,
@@ -229,11 +223,17 @@
       "weight": 0.02
     },
     {
+      "code": "2449",
+      "name": "京元電子",
+      "shares": 4000,
+      "weight": 0.02
+    },
+    {
       "code": "2317",
       "name": "鴻海",
       "shares": 1000,
       "weight": 0.0
     }
   ],
-  "fetch_time": "18:37"
+  "fetch_time": "19:05"
 }
