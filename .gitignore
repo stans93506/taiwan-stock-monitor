@@ -14,3 +14,9 @@ debug.py
 index.html
 
 launch.bat
+
+# 環境變數（含 HiStock 帳密，勿上傳）
+.env
+histock_profile/
+histock_cookies.json
+test_mp.py

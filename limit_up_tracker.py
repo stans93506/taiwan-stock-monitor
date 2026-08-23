@@ -348,42 +348,134 @@ def _fetch_histock_branch(code: str, date_str: str) -> list:
     return result
 
 
+# ── HiStock 主力進出（Playwright email/密碼自動登入） ────────────────
+def _histock_creds() -> tuple[str, str]:
+    """從環境變數或 .env 讀取 HiStock 帳密。"""
+    email    = os.environ.get("HISTOCK_EMAIL", "")
+    password = os.environ.get("HISTOCK_PASSWORD", "")
+    if not email:
+        env_path = Path(__file__).parent / ".env"
+        if env_path.exists():
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("HISTOCK_EMAIL="):
+                    email = line.split("=", 1)[1].strip()
+                elif line.startswith("HISTOCK_PASSWORD="):
+                    password = line.split("=", 1)[1].strip()
+    return email, password
+
+
+def _histock_login(page) -> bool:
+    """在已開啟的 page 上自動完成 HiStock email/密碼登入，成功回傳 True。"""
+    import time as _t
+    email, password = _histock_creds()
+    if not email or not password:
+        return False
+    page.goto("https://histock.tw/member/login.aspx", wait_until="load")
+    # 等待表單渲染（SPA 需要 JS 執行完）
+    page.wait_for_selector('input[type="email"]', timeout=15_000)
+    page.fill('input[type="email"]', email)
+    page.fill('input[type="password"]', password)
+    page.click('button[type="submit"]')
+    # 等待跳轉離開登入頁（最多 20 秒）
+    try:
+        page.wait_for_url(lambda u: "login" not in u and "auth." not in u,
+                          timeout=20_000)
+        return True
+    except Exception:
+        # 再確認一次：看 URL 是否已離開登入頁
+        _t.sleep(3)
+        return "login" not in page.url and "auth." not in page.url
+
+
+def _fetch_mainprofit_html(code: str) -> str:
+    """用 Playwright 自動登入後取得 mainprofit.aspx 的完整渲染 HTML。"""
+    import time as _time
+    from playwright.sync_api import sync_playwright
+    email, password = _histock_creds()
+    if not email:
+        return ""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+            args=["--disable-blink-features=AutomationControlled",
+                  "--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        ctx = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0.0.0 Safari/537.36"
+        )
+        try:
+            page = ctx.new_page()
+            if not _histock_login(page):
+                print(f"  [主力] HiStock 登入失敗")
+                return ""
+            url = f"https://histock.tw/stock/mainprofit.aspx?no={code}"
+            for attempt in range(6):
+                try:
+                    page.goto(url, wait_until="load", timeout=30_000)
+                    break
+                except Exception as e:
+                    if "interrupted by another navigation" in str(e):
+                        print(f"  [主力] redirect 干擾，重試 ({attempt+1}/6)...")
+                        _time.sleep(2)
+                    else:
+                        raise
+            try:
+                page.wait_for_selector("#Buy tr:nth-child(2)", timeout=15_000)
+            except Exception:
+                pass
+            html = page.content()
+        finally:
+            ctx.close()
+            browser.close()
+    return html
+
+
 def _fetch_mainprofit_avgs(code: str) -> dict:
     """
-    從 HiStock 主力進出頁面抓取分開的均買 / 均賣。
-    URL: https://histock.tw/stock/mainprofit.aspx?no={code}
+    從 HiStock 主力進出頁面抓取分開的均買 / 均賣（需登入，使用持久化 Playwright session）。
     欄位順序: ★, 券商分點, 績效, 總損益, 已實現, 未實現, 買賣超, 買張, 賣張, 均價, 均買, 均賣, 現價
     回傳 {broker_name: (buy_avg, sell_avg)}
     """
-    url = f"https://histock.tw/stock/mainprofit.aspx?no={code}"
-    hdrs = {
-        "User-Agent": _H["User-Agent"],
-        "Referer": f"https://histock.tw/stock/{code}",
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "zh-TW,zh;q=0.9",
-    }
     result: dict = {}
     try:
-        resp = requests.get(url, headers=hdrs, timeout=20, verify=False)
-        html = resp.text
-        m = re.search(r'<table[^>]*class="[^"]*tb-stock[^"]*"[^>]*>(.*?)</table>', html, re.DOTALL)
-        if not m:
+        html = _fetch_mainprofit_html(code)
+        if not html:
             return result
-        table_html = m.group(1)
-        all_rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL)
+        tables = re.findall(r'<table[^>]*class="[^"]*tb-stock[^"]*"[^>]*>.*?</table>', html, re.DOTALL)
+        if not tables:
+            return result
 
         def _cell(s):
             return re.sub(r'<[^>]+>', '', s).strip().replace(',', '')
 
-        for row_html in all_rows[1:]:
-            cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
-            if len(cells) < 12:
-                continue
-            name     = _cell(cells[1])   # 券商分點
-            buy_avg  = _parse_float(_cell(cells[10]))  # 均買
-            sell_avg = _parse_float(_cell(cells[11]))  # 均賣
-            if name:
-                result[name] = (buy_avg, sell_avg)
+        # gBuy 存 buy_avg；gSell 存 sell_avg；先用 dict 彙整
+        buy_avgs: dict = {}
+        sell_avgs: dict = {}
+        for table_html in tables:
+            is_sell = 'id="CPHB1_chipAnalysis1_gSell"' in table_html
+            all_rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL)
+            for row_html in all_rows[1:]:
+                cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+                if len(cells) < 12:
+                    continue
+                name = _cell(cells[1])   # 券商分點
+                if not name:
+                    continue
+                buy_avg  = _parse_float(_cell(cells[10]))  # 均買
+                sell_avg = _parse_float(_cell(cells[11]))  # 均賣
+                if is_sell:
+                    sell_avgs[name] = (buy_avg, sell_avg)
+                else:
+                    buy_avgs[name] = (buy_avg, sell_avg)
+
+        # 合併：同券商可能同時出現在兩張表
+        all_names = set(buy_avgs) | set(sell_avgs)
+        for name in all_names:
+            b = buy_avgs.get(name, (None, None))
+            s = sell_avgs.get(name, (None, None))
+            result[name] = (b[0] or s[0], s[1] or b[1])
     except Exception as e:
         print(f"  [主力] {code}: {e}")
     return result

@@ -23,13 +23,17 @@ jobs:
       - name: 安裝套件
         run: pip install -r requirements.txt
 
-      - name: 安裝 Playwright 瀏覽器
-        run: python -m playwright install chromium --with-deps
+      - name: 安裝 Playwright 瀏覽器與 Xvfb
+        run: |
+          python -m playwright install chromium --with-deps
+          sudo apt-get install -y xvfb
 
       - name: 執行監測腳本
-        run: python fetch_revenue.py
+        run: xvfb-run --auto-servernum python fetch_revenue.py
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          HISTOCK_EMAIL: ${{ secrets.HISTOCK_EMAIL }}
+          HISTOCK_PASSWORD: ${{ secrets.HISTOCK_PASSWORD }}
 
       - name: 複製為 index.html（供 GitHub Pages 使用）
         run: cp 台股監測.html index.html
