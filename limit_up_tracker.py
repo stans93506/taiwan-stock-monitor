@@ -80,33 +80,20 @@ def get_sector_map() -> dict:
     except Exception as e:
         print(f"  [族群] TWSE t187ap03_L 失敗: {e}")
 
-    # TPEx 上櫃 — 從 isin.twse.com.tw 取得（含中文產業名稱）
+    # TPEx 上櫃 — 使用 tpex.org.tw OpenAPI（含 SecuritiesIndustryCode）
     try:
-        from bs4 import BeautifulSoup
         r = requests.get(
-            "https://isin.twse.com.tw/isin/C_public.jsp?strMode=4",
-            headers={**_H, "Accept": "text/html,*/*"},
-            timeout=20, verify=False
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
+            headers=_H, timeout=20, verify=False
         )
-        r.encoding = "big5"
-        soup = BeautifulSoup(r.text, "html.parser")
-        current_sector = ""
-        for tr in soup.find_all("tr"):
-            tds = tr.find_all("td")
-            if not tds:
-                continue
-            if len(tds) == 1:
-                text = tds[0].get_text(strip=True)
-                if text:
-                    current_sector = text
-            elif len(tds) >= 4:
-                raw_code = tds[0].get_text(strip=True)
-                parts = raw_code.split("　")  # 全形空白
-                code = parts[0].strip() if parts else ""
-                if code and current_sector and len(code) <= 6:
-                    mapping.setdefault(code, current_sector)
+        for item in r.json():
+            code = str(item.get("SecuritiesCompanyCode", "")).strip()
+            raw  = str(item.get("SecuritiesIndustryCode", "")).strip()
+            sector = _TWSE_SECTOR.get(raw, raw)
+            if code and sector:
+                mapping[code] = sector
     except Exception as e:
-        print(f"  [族群] TPEx isin 失敗: {e}")
+        print(f"  [族群] TPEx mopsfin_t187ap03_O 失敗: {e}")
 
     _sector_cache = mapping
     return mapping
@@ -295,6 +282,12 @@ def fetch_limit_up(date_str: str = None) -> list:
     if date_str is None:
         date_str = _tw_now().strftime("%Y%m%d")
 
+    # 週末（六日）非交易日，直接跳過
+    _dow = datetime.strptime(date_str, "%Y%m%d").weekday()
+    if _dow >= 5:
+        print(f"  [漲停] {date_str} 為週末，跳過")
+        return []
+
     print(f"  [漲停] 抓取 {date_str}...")
     sector_map = get_sector_map()
 
@@ -312,12 +305,8 @@ def fetch_limit_up(date_str: str = None) -> list:
             if not _is_limit_up(s["close"], s["change"]):
                 continue
             code = s["code"]
-            # 過濾權證（6位純數字）、牛熊證、結構型商品
-            if code.isdigit() and len(code) >= 6:
-                continue
-            # 過濾名稱含認購/認售/權證/牛/熊 的衍生商品
-            name = s["name"]
-            if any(k in name for k in ("認購", "認售", "權證", "牛證", "熊證")):
+            # 只保留 4 位純數字代號（一般股票），過濾所有衍生商品/權證
+            if not (code.isdigit() and len(code) == 4):
                 continue
             iv = inst.get(code, {})
             result.append({
