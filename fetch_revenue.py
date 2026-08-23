@@ -22,6 +22,7 @@ from bs4 import BeautifulSoup
 import time
 from requests.adapters import HTTPAdapter
 import etf_tracker
+import limit_up_tracker
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -4493,6 +4494,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <button class="tab-btn" onclick="switchTab('etf', this)">📈 主動ETF</button>
   <button class="tab-btn" onclick="switchTab('spo', this)">現增</button>
   <button class="tab-btn" onclick="switchTab('borrow', this)">標借</button>
+  <button class="tab-btn" onclick="switchTab('limitup', this)">漲停</button>
 </div>
 
 <div class="container-fluid px-4 py-3">
@@ -4723,6 +4725,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="mt-1" style="font-size:.78rem;color:var(--muted)">
       說明：得標數量、最低得標單價、最高得標單價、不足數量於每日中午開標後提供。
     </div>
+  </div>
+
+  <!-- ═══ 漲停分頁 ═══ -->
+  <div id="tab-limitup" class="tab-pane">
+    {limit_up_html}
   </div>
 
 </div>
@@ -5751,7 +5758,8 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                   qtr_history: dict = None,
                   borrow_data: list = None,
                   borrow_avail_dates: list = None,
-                  borrow_history: dict = None) -> str:
+                  borrow_history: dict = None,
+                  limit_up_html: str = "") -> str:
     updated = _tw_now().strftime("%Y-%m-%d %H:%M")
     rev_period      = f"民國 {roc_year} 年 {month} 月"
     rev_period_disp = f"{roc_year + 1911}/{month:02d}"   # e.g. "2026/05"
@@ -6501,6 +6509,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
         rev_hist_json=rev_hist_json,
         rev_archive_json=rev_archive_json,
         rev_month_dropdown=rev_month_dropdown,
+        limit_up_html=limit_up_html,
     )
 
 
@@ -7986,6 +7995,18 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         _borrow_data = []
     _borrow_avail_dates, _borrow_history = load_borrow_history()
 
+    print("\n【每日漲停追蹤】")
+    try:
+        _lu_date = _tw_now().strftime("%Y%m%d")
+        _lu_rows = limit_up_tracker.fetch_limit_up(_lu_date)
+        if _lu_rows:
+            limit_up_tracker.save_limit_up_cache(_lu_date, _lu_rows)
+    except Exception as e:
+        print(f"  ⚠ 漲停抓取失敗：{e}")
+        _lu_rows = []
+    _lu_avail, _lu_history = limit_up_tracker.load_limit_up_history()
+    _limit_up_html = limit_up_tracker.generate_limit_up_html(_lu_avail, _lu_history)
+
     print("📝 產生報表...")
     print("  [歷史月營收] 確認 cache...")
     _code_market: dict = {}
@@ -8096,7 +8117,8 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          qtr_history=_cqdata,
                          borrow_data=_borrow_data,
                          borrow_avail_dates=_borrow_avail_dates,
-                         borrow_history=_borrow_history)
+                         borrow_history=_borrow_history,
+                         limit_up_html=_limit_up_html)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
     # 同步寫一份 index.html 供 HTTP server 使用（避免 bat 需要含中文的 copy 指令）
