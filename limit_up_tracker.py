@@ -4,7 +4,7 @@
 資料來源：TWSE OpenAPI / TPEx stk_quote_result / T86 / 3itrade
 """
 
-import json, os, requests
+import json, os, re, requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -288,7 +288,65 @@ def _fetch_tpex_institutional(date_str: str) -> dict:
     return result
 
 
-# ── 券商分點買賣超 ────────────────────────────────────────────────────
+# ── 券商分點買賣超（HiStock） ─────────────────────────────────────────
+def _fetch_histock_branch(code: str, date_str: str) -> list:
+    """
+    從 HiStock 抓取個股券商分點買賣超。
+    URL: https://histock.tw/stock/branch.aspx?no={code}&from={YYYYMMDD}&to={YYYYMMDD}
+
+    回傳 [{name, buy, sell, net, avg, side}]
+    - side='buy' 買超分點, side='sell' 賣超分點
+    - 單位：張（頁面已是張）
+    """
+    url = (f"https://histock.tw/stock/branch.aspx"
+           f"?no={code}&from={date_str}&to={date_str}")
+    hdrs = {
+        "User-Agent": _H["User-Agent"],
+        "Referer": f"https://histock.tw/stock/{code}",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "zh-TW,zh;q=0.9",
+    }
+    result = []
+    try:
+        resp = requests.get(url, headers=hdrs, timeout=20, verify=False)
+        html = resp.text
+
+        m = re.search(r'class="tb-stock tbChip[^"]*"(.*?)</table>', html, re.DOTALL)
+        if not m:
+            return result
+        table_html = m.group(1)
+        all_rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL)
+
+        def _cell(s):
+            return re.sub(r'<[^>]+>', '', s).strip().replace(',', '')
+
+        for row_html in all_rows[1:]:   # 跳過標題列
+            cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+            if len(cells) < 10:
+                continue
+            # 賣超側（左）: cols 0-4 → 券商名稱,買張,賣張,賣超,均價
+            s_name = _cell(cells[0])
+            s_buy  = _parse_int(_cell(cells[1]))
+            s_sell = _parse_int(_cell(cells[2]))
+            s_net  = _parse_int(_cell(cells[3]))
+            s_avg  = _parse_float(_cell(cells[4]))
+            # 買超側（右）: cols 5-9 → 券商名稱,買張,賣張,買超,均價
+            b_name = _cell(cells[5])
+            b_buy  = _parse_int(_cell(cells[6]))
+            b_sell = _parse_int(_cell(cells[7]))
+            b_net  = _parse_int(_cell(cells[8]))
+            b_avg  = _parse_float(_cell(cells[9]))
+
+            if s_name:
+                result.append({"name": s_name, "buy": s_buy, "sell": s_sell,
+                               "net": s_net,  "avg": s_avg,  "side": "sell"})
+            if b_name:
+                result.append({"name": b_name, "buy": b_buy, "sell": b_sell,
+                               "net": b_net,  "avg": b_avg,  "side": "buy"})
+    except Exception as e:
+        print(f"  [分點] {code}: {e}")
+    return result
+
 
 # ── 主抓取函式 ────────────────────────────────────────────────────────
 def fetch_limit_up(date_str: str = None) -> list:
@@ -343,6 +401,25 @@ def fetch_limit_up(date_str: str = None) -> list:
     twse_cnt = sum(1 for r in result if r["market"] == "上市")
     tpex_cnt = sum(1 for r in result if r["market"] == "上櫃")
     print(f"  [漲停] 共 {len(result)} 檔漲停（上市 {twse_cnt} / 上櫃 {tpex_cnt}）")
+
+    # 抓取 HiStock 券商分點（並行，每批最多 4 個請求）
+    if result:
+        print(f"  [分點] 抓取 {len(result)} 檔券商分點...")
+        broker_map: dict = {}
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futs = {ex.submit(_fetch_histock_branch, r["code"], date_str): r["code"]
+                    for r in result}
+            for fut in as_completed(futs):
+                code = futs[fut]
+                try:
+                    broker_map[code] = fut.result()
+                except Exception:
+                    broker_map[code] = []
+        for row in result:
+            row["brokers"] = broker_map.get(row["code"], [])
+        ok = sum(1 for r in result if r.get("brokers"))
+        print(f"  [分點] {ok}/{len(result)} 檔有分點資料")
+
     return result
 
 
@@ -355,7 +432,9 @@ def save_limit_up_cache(date_str: str, rows: list) -> None:
     if path.exists():
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
-            if len(rows) <= len(existing):
+            new_has_brokers = any(r.get("brokers") for r in rows)
+            old_has_brokers = any(r.get("brokers") for r in existing)
+            if len(rows) <= len(existing) and not (new_has_brokers and not old_has_brokers):
                 return
         except Exception:
             pass
@@ -417,7 +496,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
                      else "<span class='badge' style='background:#7c3aed'>上櫃</span>")
             code = r['code']
             parts.append(
-                f"<tr data-code='{code}' onclick=\"luToggleDetail('{code}')\" style='cursor:pointer'>"
+                f"<tr data-code='{code}' style='cursor:pointer'>"
                 f"<td>{badge}</td>"
                 f"<td style='color:#4fc3f7;font-weight:700'>{code}</td>"
                 f"<td>{r['name']}</td>"
@@ -507,7 +586,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       ? "<span class='badge bg-primary'>上市</span>"
       : "<span class='badge' style='background:#7c3aed'>上櫃</span>";
     var code = r.code || '';
-    return "<tr data-code='" + code + "' onclick=\"luToggleDetail('" + code + "')\" style='cursor:pointer'>" +
+    return "<tr data-code='" + code + "' style='cursor:pointer'>" +
       '<td>' + badge + '</td>' +
       '<td style="color:#4fc3f7;font-weight:700">' + code + '</td>' +
       '<td>' + (r.name||'') + '</td>' +
@@ -560,7 +639,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     var existing = document.getElementById('luDetailRow');
     var wasCode = existing ? existing.dataset.code : null;
     if (existing) existing.remove();
-    if (wasCode === code) return; // 再次點擊關閉
+    if (wasCode === code) return;
 
     var stockRow = _luAll.find(function(r) {{ return r.code === code; }});
     if (!stockRow) return;
@@ -581,126 +660,236 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
   }};
 
   function renderDetailPanel(container, stockRow) {{
-    var dateKey = document.getElementById('luDateSelect').value;
     var sel = document.getElementById('luDateSelect');
     var dateLabel = sel.options[sel.selectedIndex].text;
-
     var f = stockRow.foreign || 0;
     var t = stockRow.trust   || 0;
     var d = stockRow.dealer  || 0;
     var total3 = f + t + d;
+    var brokers = stockRow.brokers || [];
+    var sellers = brokers.filter(function(b){{ return b.side === 'sell'; }});
+    var buyers  = brokers.filter(function(b){{ return b.side === 'buy'; }});
+    var hasBrokers = brokers.length > 0;
 
-    // Same-sector peers also hitting limit-up today
     var sector = stockRow.sector || '';
-    var peers = _luAll.filter(function(r) {{
+    var peers = _luAll.filter(function(r){{
       return r.sector === sector && r.code !== stockRow.code;
     }});
+
+    function fi(v) {{
+      if (v > 0) return '<span style="color:#ef5350;font-weight:700">+' + v.toLocaleString() + '</span>';
+      if (v < 0) return '<span style="color:#4caf50;font-weight:700">' + v.toLocaleString() + '</span>';
+      return '<span style="color:#aaa">0</span>';
+    }}
+
+    function brokerTable(list, side) {{
+      var hdNet  = side === 'sell' ? '賣超' : '買超';
+      var clrNet = side === 'sell' ? '#4caf50' : '#ef5350';
+      var rows = list.map(function(b) {{
+        var netV = (b.net||0).toLocaleString();
+        return '<tr>' +
+          '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
+          '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
+          '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
+          '<td class="text-end;font-weight:700" style="color:' + clrNet + '">' + netV + '</td>' +
+          '<td class="text-end" style="color:#aaa">' + (b.avg||0).toFixed(2) + '</td>' +
+        '</tr>';
+      }}).join('');
+      return '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
+        '<thead><tr>' +
+          '<th>券商</th>' +
+          '<th class="text-end" style="color:#ef5350">買張</th>' +
+          '<th class="text-end" style="color:#4caf50">賣張</th>' +
+          '<th class="text-end" style="color:' + clrNet + '">' + hdNet + '</th>' +
+          '<th class="text-end">均價</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+        '</table>';
+    }}
 
     function instBar(label, val, maxV) {{
       var pct = maxV > 0 ? Math.min(100, Math.abs(val) / maxV * 100) : 0;
       var color = val > 0 ? '#ef5350' : (val < 0 ? '#4caf50' : '#555');
       var sign  = val > 0 ? '+' : '';
-      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">' +
-        '<span style="width:36px;color:#888;font-size:.75rem;text-align:right">' + label + '</span>' +
-        '<div style="flex:1;background:#1e1e2e;border-radius:3px;height:14px;position:relative">' +
+      return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
+        '<span style="width:30px;color:#888;font-size:.72rem;text-align:right">' + label + '</span>' +
+        '<div style="flex:1;background:#1e1e2e;border-radius:3px;height:12px;position:relative">' +
           '<div style="position:absolute;' + (val >= 0 ? 'left:0' : 'right:0') +
             ';top:0;bottom:0;width:' + pct.toFixed(1) + '%;background:' + color +
             ';border-radius:3px;opacity:.8"></div>' +
         '</div>' +
-        '<span style="width:60px;text-align:right;color:' + color + ';font-weight:700;font-size:.8rem">' +
+        '<span style="width:54px;text-align:right;color:' + color + ';font-weight:700;font-size:.75rem">' +
           sign + val.toLocaleString() + '</span>' +
       '</div>';
     }}
-
     var maxInst = Math.max(1, Math.abs(f), Math.abs(t), Math.abs(d));
 
     var peerHtml = '';
     if (peers.length > 0) {{
-      peerHtml = '<div style="margin-top:12px">' +
-        '<div style="color:#888;font-size:.75rem;margin-bottom:4px">同族群漲停（' + _esc(sector) + '）</div>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+      peerHtml = '<div style="margin-top:10px">' +
+        '<div style="color:#888;font-size:.72rem;margin-bottom:3px">同族群漲停（' + _esc(sector) + '）</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:5px">' +
         peers.map(function(p) {{
-          return '<span style="background:#1e1e2e;border:1px solid #333;border-radius:4px;padding:2px 8px;font-size:.78rem;cursor:default">' +
+          return '<span style="background:#1e1e2e;border:1px solid #333;border-radius:4px;padding:2px 7px;font-size:.75rem">' +
             '<span style="color:#4fc3f7">' + p.code + '</span> ' + _esc(p.name) +
-            ' <span style="color:#aaa">' + p.close.toFixed(2) + '</span>' +
-            '</span>';
+            ' <span style="color:#aaa">' + p.close.toFixed(2) + '</span></span>';
         }}).join('') +
         '</div></div>';
     }}
 
+    var brokerSection = hasBrokers
+      ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">' +
+          '<div>' +
+            '<div style="color:#4caf50;font-size:.75rem;margin-bottom:4px">▼ 賣超分點 Top' + sellers.length + '</div>' +
+            brokerTable(sellers, 'sell') +
+          '</div>' +
+          '<div>' +
+            '<div style="color:#ef5350;font-size:.75rem;margin-bottom:4px">▲ 買超分點 Top' + buyers.length + '</div>' +
+            brokerTable(buyers, 'buy') +
+          '</div>' +
+        '</div>' +
+        '<div style="margin-top:8px">' +
+          '<div style="color:#888;font-size:.72rem;margin-bottom:4px">券商分點泡泡圖（X=買賣量　Y=均價）</div>' +
+          '<svg id="luBubbleSvg" width="100%" height="240" style="display:block"></svg>' +
+        '</div>'
+      : '<div style="color:#666;font-size:.78rem;margin-top:6px">（分點資料未取得）</div>';
+
     container.innerHTML =
       '<div style="padding:10px 14px;background:#0d0d1a;border-top:2px solid #f97316">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
           '<div>' +
             '<span style="color:#f97316;font-weight:700;font-size:.95rem">' + stockRow.code + ' ' + _esc(stockRow.name) + '</span>' +
-            '<span style="color:#aaa;font-size:.8rem;margin-left:10px">' + _esc(dateLabel) + '　收盤 <span style="color:#ef5350;font-weight:700">' + stockRow.close.toFixed(2) + '</span></span>' +
-            '<span style="color:#888;font-size:.78rem;margin-left:10px">' + _esc(stockRow.market) + '　' + _esc(stockRow.sector) + '</span>' +
+            '<span style="color:#aaa;font-size:.78rem;margin-left:10px">' + _esc(dateLabel) +
+              '　漲停 <span style="color:#ef5350;font-weight:700">' + stockRow.close.toFixed(2) + '</span></span>' +
+            '<span style="color:#666;font-size:.75rem;margin-left:8px">' + _esc(stockRow.market) + '　' + _esc(stockRow.sector) + '</span>' +
           '</div>' +
           '<button onclick="var d=document.getElementById(\'luDetailRow\');if(d)d.remove();" ' +
             'style="background:#333;border:none;color:#ccc;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:1rem">×</button>' +
         '</div>' +
-        '<div style="display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start">' +
+        '<div style="display:grid;grid-template-columns:180px 1fr;gap:16px;align-items:start">' +
           '<div>' +
-            '<div style="color:#888;font-size:.75rem;margin-bottom:6px">三大法人買賣超（張）</div>' +
+            '<div style="color:#888;font-size:.72rem;margin-bottom:5px">三大法人（張）</div>' +
             instBar('外資', f, maxInst) +
             instBar('投信', t, maxInst) +
             instBar('自營', d, maxInst) +
-            '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #222;font-size:.75rem;color:#888">' +
-              '合計：<span style="color:' + (total3 >= 0 ? '#ef5350' : '#4caf50') + ';font-weight:700">' +
-              (total3 >= 0 ? '+' : '') + total3.toLocaleString() + ' 張</span>' +
-              '　　量：<span style="color:#aaa">' + (stockRow.vol_lots||0).toLocaleString() + ' 張</span>' +
-            '</div>' +
-          '</div>' +
-          '<div>' +
-            '<div style="color:#888;font-size:.75rem;margin-bottom:6px">法人佔量比</div>' +
-            '<svg id="luInstSvg" width="100%" height="90" style="display:block"></svg>' +
+            '<div style="margin-top:6px;font-size:.72rem;color:#888">合計 ' +
+              fi(total3) + '　量 <span style="color:#aaa">' + (stockRow.vol_lots||0).toLocaleString() + '</span></div>' +
             peerHtml +
           '</div>' +
+          '<div>' + brokerSection + '</div>' +
         '</div>' +
       '</div>';
 
-    setTimeout(function() {{
-      var svg = document.getElementById('luInstSvg');
-      if (svg) drawInstPie(svg, stockRow);
-    }}, 30);
+    if (hasBrokers) {{
+      setTimeout(function() {{
+        var svg = document.getElementById('luBubbleSvg');
+        if (svg) drawBrokerBubbles(svg, brokers, stockRow.close);
+      }}, 30);
+    }}
   }}
 
-  function drawInstPie(svg, r) {{
-    var W = svg.parentElement.clientWidth || 400;
-    var H = 90;
-    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-    var vol = r.vol_lots || 1;
-    var f = r.foreign || 0, t = r.trust || 0, d = r.dealer || 0;
-    var items = [
-      {{label:'外資', val:f, color:'#42a5f5'}},
-      {{label:'投信', val:t, color:'#ab47bc'}},
-      {{label:'自營', val:d, color:'#66bb6a'}},
-    ];
-    var barH = 18, gap = 8, startY = 12;
+  function drawBrokerBubbles(svgEl, brokers, limitPrice) {{
+    var W = svgEl.parentElement.clientWidth || 600;
+    if (W < 200) W = 600;
+    var H = 240;
+    svgEl.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    var PAD_L = 44, PAD_R = 10, PAD_T = 14, PAD_B = 22;
+    var cW = W - PAD_L - PAD_R;
+    var cH = H - PAD_T - PAD_B;
+    var midX = PAD_L + cW / 2;
+
+    var maxVol = 1;
+    brokers.forEach(function(b) {{
+      maxVol = Math.max(maxVol, b.buy || 0, b.sell || 0);
+    }});
+
+    var prices = brokers.map(function(b){{ return b.avg; }}).filter(function(p){{ return p > 0; }});
+    if (!prices.length) {{ svgEl.style.display='none'; return; }}
+    prices.push(limitPrice);
+    var minP = Math.min.apply(null, prices) - 0.05;
+    var maxP = Math.max.apply(null, prices) + 0.05;
+    var pRange = maxP - minP || 1;
+
+    function xVol(vol, isSell) {{
+      var halfW = cW * 0.44;
+      return isSell ? (midX - vol / maxVol * halfW) : (midX + vol / maxVol * halfW);
+    }}
+    function yP(price) {{
+      return PAD_T + cH - (price - minP) / pRange * cH;
+    }}
+    function rV(vol) {{
+      return Math.max(3, Math.min(16, Math.sqrt(vol / maxVol) * 16));
+    }}
+
     var parts = [];
-    items.forEach(function(item, i) {{
-      var y = startY + i * (barH + gap);
-      var pctBuy  = item.val > 0 ? Math.min(100, item.val / vol * 100) : 0;
-      var pctSell = item.val < 0 ? Math.min(100, Math.abs(item.val) / vol * 100) : 0;
-      var maxW = W * 0.55;
-      var cx = W * 0.35;
-      parts.push('<text x="' + (cx - 4) + '" y="' + (y + 13) + '" fill="#888" font-size="10" text-anchor="end">' + item.label + '</text>');
-      parts.push('<rect x="' + cx + '" y="' + y + '" width="' + maxW + '" height="' + barH + '" fill="#1e1e2e" rx="3"/>');
-      if (pctBuy > 0) {{
-        var w = pctBuy / 100 * maxW;
-        parts.push('<rect x="' + cx + '" y="' + y + '" width="' + w + '" height="' + barH + '" fill="' + item.color + '" opacity=".8" rx="3"/>');
-        parts.push('<text x="' + (cx + w + 3) + '" y="' + (y+13) + '" fill="' + item.color + '" font-size="10">' +
-          '+' + item.val.toLocaleString() + ' (' + pctBuy.toFixed(1) + '%)</text>');
-      }} else if (pctSell > 0) {{
-        var w = pctSell / 100 * maxW;
-        parts.push('<rect x="' + (cx + maxW - w) + '" y="' + y + '" width="' + w + '" height="' + barH + '" fill="#4caf50" opacity=".8" rx="3"/>');
-        parts.push('<text x="' + (cx + maxW - w - 3) + '" y="' + (y+13) + '" fill="#4caf50" font-size="10" text-anchor="end">' +
-          item.val.toLocaleString() + ' (' + pctSell.toFixed(1) + '%)</text>');
-      }} else {{
-        parts.push('<text x="' + (cx + 4) + '" y="' + (y+13) + '" fill="#555" font-size="10">0</text>');
+
+    // Grid lines + Y-axis price labels
+    for (var ti = 0; ti <= 4; ti++) {{
+      var tp = minP + pRange * ti / 4;
+      var ty = yP(tp);
+      parts.push('<line x1="' + PAD_L + '" y1="' + ty + '" x2="' + (W-PAD_R) + '" y2="' + ty +
+        '" stroke="#1e1e2e" stroke-width="1"/>');
+      parts.push('<text x="' + (PAD_L-3) + '" y="' + (ty+4) + '" fill="#555" font-size="9" text-anchor="end">' +
+        tp.toFixed(2) + '</text>');
+    }}
+
+    // 漲停價 horizontal line
+    var yLim = yP(limitPrice);
+    parts.push('<line x1="' + PAD_L + '" y1="' + yLim + '" x2="' + (W-PAD_R) + '" y2="' + yLim +
+      '" stroke="#ef5350" stroke-width="1" stroke-dasharray="4,3" opacity=".5"/>');
+    parts.push('<text x="' + (PAD_L+3) + '" y="' + (yLim-3) + '" fill="#ef5350" font-size="8">漲停' +
+      limitPrice.toFixed(2) + '</text>');
+
+    // Center axis
+    parts.push('<line x1="' + midX + '" y1="' + PAD_T + '" x2="' + midX + '" y2="' + (H-PAD_B) +
+      '" stroke="#444" stroke-width="1"/>');
+
+    // X-axis label
+    parts.push('<text x="' + (midX - cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">←賣出</text>');
+    parts.push('<text x="' + (midX + cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">買進→</text>');
+
+    // Draw connecting lines first (under circles)
+    brokers.forEach(function(b) {{
+      if (!b.avg || b.avg <= 0) return;
+      var yy = yP(b.avg);
+      var xS = xVol(b.sell||0, true);
+      var xB = xVol(b.buy||0, false);
+      if ((b.sell||0) > 0 && (b.buy||0) > 0) {{
+        parts.push('<line x1="' + xS + '" y1="' + yy + '" x2="' + xB + '" y2="' + yy +
+          '" stroke="#555" stroke-width="1" stroke-dasharray="3,2"/>');
       }}
     }});
-    svg.innerHTML = parts.join('');
+
+    // Draw circles + labels
+    var threshold = maxVol * 0.08;
+    brokers.forEach(function(b) {{
+      if (!b.avg || b.avg <= 0) return;
+      var yy = yP(b.avg);
+      var shortName = b.name.replace(/.*?-/, '').slice(0, 5) || b.name.slice(0, 5);
+
+      if ((b.sell||0) > 0) {{
+        var xS = xVol(b.sell, true);
+        var rS = rV(b.sell);
+        parts.push('<circle cx="' + xS + '" cy="' + yy + '" r="' + rS +
+          '" fill="#4caf50" opacity=".75" stroke="#2d6a4f" stroke-width=".5"/>');
+        if (b.sell >= threshold || b.side === 'sell') {{
+          parts.push('<text x="' + (xS - rS - 2) + '" y="' + (yy+3) + '" fill="#81c995" font-size="8" text-anchor="end">' +
+            _esc(shortName) + '</text>');
+        }}
+      }}
+      if ((b.buy||0) > 0) {{
+        var xB = xVol(b.buy, false);
+        var rB = rV(b.buy);
+        parts.push('<circle cx="' + xB + '" cy="' + yy + '" r="' + rB +
+          '" fill="#ef5350" opacity=".75" stroke="#7f1d1d" stroke-width=".5"/>');
+        if (b.buy >= threshold || b.side === 'buy') {{
+          parts.push('<text x="' + (xB + rB + 2) + '" y="' + (yy+3) + '" fill="#f87171" font-size="8">' +
+            _esc(shortName) + '</text>');
+        }}
+      }}
+    }});
+
+    svgEl.innerHTML = parts.join('');
   }}
 
   function _esc(s) {{
@@ -708,6 +897,13 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
   }}
 
   luFilter();
+
+  // Event delegation: one listener catches all row clicks
+  document.getElementById('luTbody').addEventListener('click', function(e) {{
+    var tr = e.target.closest('tr[data-code]');
+    if (!tr || tr.id === 'luDetailRow') return;
+    window.luToggleDetail(tr.dataset.code);
+  }});
 }})();
 </script>
 """
