@@ -235,7 +235,7 @@ def _fetch_twse_institutional(date_str: str) -> dict:
             def _get(c):
                 if c is None or c >= len(row):
                     return 0
-                return _parse_int(row[c]) // 1000  # 股 → 張
+                return round(_parse_int(row[c]) / 1000)  # 股 → 張（四捨五入）
 
             result[code] = {
                 "foreign": _get(c_foreign),
@@ -276,9 +276,9 @@ def _fetch_tpex_institutional(date_str: str) -> dict:
                 if not code:
                     continue
                 result[code] = {
-                    "foreign": _parse_int(row[10]) // 1000,  # 外資及陸資淨(股→張)
-                    "trust":   _parse_int(row[13]) // 1000,  # 投信淨(股→張)
-                    "dealer":  _parse_int(row[22]) // 1000,  # 自營合計淨(股→張)
+                    "foreign": round(_parse_int(row[10]) / 1000),  # 外資及陸資淨(股→張)
+                    "trust":   round(_parse_int(row[13]) / 1000),  # 投信淨(股→張)
+                    "dealer":  round(_parse_int(row[22]) / 1000),  # 自營合計淨(股→張)
                 }
             except Exception:
                 continue
