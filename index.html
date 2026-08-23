@@ -5983,23 +5983,25 @@
       var rows = list.map(function(b) {
         var netV = (b.net||0).toLocaleString();
         var avg  = (b.avg||0).toFixed(2);
+        var buyAvg  = (b.buy_avg  || b.avg || 0).toFixed(2);
+        var sellAvg = (b.sell_avg || b.avg || 0).toFixed(2);
         if (isBuy) {
           return '<tr>' +
             '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
             '<td class="text-end" style="color:#ef5350;font-weight:700">' + netV + '</td>' +
-            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#ef5350">' + buyAvg + '</td>' +
             '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
             '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
-            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#4caf50">' + sellAvg + '</td>' +
           '</tr>';
         } else {
           return '<tr>' +
             '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
             '<td class="text-end" style="color:#4caf50;font-weight:700">' + netV + '</td>' +
-            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#4caf50">' + sellAvg + '</td>' +
             '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
             '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
-            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#ef5350">' + buyAvg + '</td>' +
           '</tr>';
         }
       }).join('');
@@ -6196,7 +6198,8 @@
         var rS = rV(b.sell);
         parts.push('<circle cx="' + xS + '" cy="' + yy + '" r="' + rS +
           '" fill="#4caf50" opacity=".75" stroke="#2d6a4f" stroke-width=".5"' +
-          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) + '" data-avg="' + (b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
+          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) +
+          '" data-buyavg="' + (b.buy_avg||b.avg||0).toFixed(2) + '" data-sellavg="' + (b.sell_avg||b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
         if (b.sell >= threshold || b.side === 'sell') {
           parts.push('<text x="' + (xS - rS - 2) + '" y="' + (yy+3) + '" fill="#81c995" font-size="8" text-anchor="end">' +
             _esc(shortName) + '</text>');
@@ -6207,7 +6210,8 @@
         var rB = rV(b.buy);
         parts.push('<circle cx="' + xB + '" cy="' + yy + '" r="' + rB +
           '" fill="#ef5350" opacity=".75" stroke="#7f1d1d" stroke-width=".5"' +
-          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) + '" data-avg="' + (b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
+          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) +
+          '" data-buyavg="' + (b.buy_avg||b.avg||0).toFixed(2) + '" data-sellavg="' + (b.sell_avg||b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
         if (b.buy >= threshold || b.side === 'buy') {
           parts.push('<text x="' + (xB + rB + 2) + '" y="' + (yy+3) + '" fill="#f87171" font-size="8">' +
             _esc(shortName) + '</text>');
@@ -6229,9 +6233,10 @@
       c.addEventListener('mouseenter', function() {
         tipEl.innerHTML =
           '<b style="color:#f9a825">' + c.getAttribute('data-name') + '</b><br>' +
-          '買量 <span style="color:#ef5350;font-weight:700">' + Number(c.getAttribute('data-buy')).toLocaleString() + '</span> 張<br>' +
-          '賣量 <span style="color:#4caf50;font-weight:700">' + Number(c.getAttribute('data-sell')).toLocaleString() + '</span> 張<br>' +
-          '均價 <span style="color:#aaa">' + c.getAttribute('data-avg') + '</span>';
+          '買量 <span style="color:#ef5350;font-weight:700">' + Number(c.getAttribute('data-buy')).toLocaleString() + '</span> 張　' +
+          '買均 <span style="color:#ef5350">' + c.getAttribute('data-buyavg') + '</span><br>' +
+          '賣量 <span style="color:#4caf50;font-weight:700">' + Number(c.getAttribute('data-sell')).toLocaleString() + '</span> 張　' +
+          '賣均 <span style="color:#4caf50">' + c.getAttribute('data-sellavg') + '</span>';
         tipEl.style.display = 'block';
       });
       c.addEventListener('mousemove', function(e) {

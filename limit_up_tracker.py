@@ -348,6 +348,47 @@ def _fetch_histock_branch(code: str, date_str: str) -> list:
     return result
 
 
+def _fetch_mainprofit_avgs(code: str) -> dict:
+    """
+    從 HiStock 主力進出頁面抓取分開的均買 / 均賣。
+    URL: https://histock.tw/stock/mainprofit.aspx?no={code}
+    欄位順序: ★, 券商分點, 績效, 總損益, 已實現, 未實現, 買賣超, 買張, 賣張, 均價, 均買, 均賣, 現價
+    回傳 {broker_name: (buy_avg, sell_avg)}
+    """
+    url = f"https://histock.tw/stock/mainprofit.aspx?no={code}"
+    hdrs = {
+        "User-Agent": _H["User-Agent"],
+        "Referer": f"https://histock.tw/stock/{code}",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "zh-TW,zh;q=0.9",
+    }
+    result: dict = {}
+    try:
+        resp = requests.get(url, headers=hdrs, timeout=20, verify=False)
+        html = resp.text
+        m = re.search(r'<table[^>]*class="[^"]*tb-stock[^"]*"[^>]*>(.*?)</table>', html, re.DOTALL)
+        if not m:
+            return result
+        table_html = m.group(1)
+        all_rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL)
+
+        def _cell(s):
+            return re.sub(r'<[^>]+>', '', s).strip().replace(',', '')
+
+        for row_html in all_rows[1:]:
+            cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+            if len(cells) < 12:
+                continue
+            name     = _cell(cells[1])   # 券商分點
+            buy_avg  = _parse_float(_cell(cells[10]))  # 均買
+            sell_avg = _parse_float(_cell(cells[11]))  # 均賣
+            if name:
+                result[name] = (buy_avg, sell_avg)
+    except Exception as e:
+        print(f"  [主力] {code}: {e}")
+    return result
+
+
 # ── 主抓取函式 ────────────────────────────────────────────────────────
 def fetch_limit_up(date_str: str = None) -> list:
     """
@@ -419,6 +460,32 @@ def fetch_limit_up(date_str: str = None) -> list:
             row["brokers"] = broker_map.get(row["code"], [])
         ok = sum(1 for r in result if r.get("brokers"))
         print(f"  [分點] {ok}/{len(result)} 檔有分點資料")
+
+        # 抓取 mainprofit 均買/均賣（並行）
+        codes_with_brokers = [r["code"] for r in result if r.get("brokers")]
+        if codes_with_brokers:
+            print(f"  [主力] 抓取 {len(codes_with_brokers)} 檔均買/均賣...")
+            mp_map: dict = {}
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                futs2 = {ex.submit(_fetch_mainprofit_avgs, c): c for c in codes_with_brokers}
+                for fut in as_completed(futs2):
+                    c = futs2[fut]
+                    try:
+                        mp_map[c] = fut.result()
+                    except Exception:
+                        mp_map[c] = {}
+            for row in result:
+                mp = mp_map.get(row["code"], {})
+                for b in row.get("brokers", []):
+                    avgs = mp.get(b["name"])
+                    if avgs and (avgs[0] > 0 or avgs[1] > 0):
+                        b["buy_avg"]  = avgs[0]
+                        b["sell_avg"] = avgs[1]
+                    else:
+                        b["buy_avg"]  = b["avg"]
+                        b["sell_avg"] = b["avg"]
+            ok2 = sum(1 for c in codes_with_brokers if mp_map.get(c))
+            print(f"  [主力] {ok2}/{len(codes_with_brokers)} 檔取得均買/均賣")
 
     return result
 
@@ -689,23 +756,25 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       var rows = list.map(function(b) {{
         var netV = (b.net||0).toLocaleString();
         var avg  = (b.avg||0).toFixed(2);
+        var buyAvg  = (b.buy_avg  || b.avg || 0).toFixed(2);
+        var sellAvg = (b.sell_avg || b.avg || 0).toFixed(2);
         if (isBuy) {{
           return '<tr>' +
             '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
             '<td class="text-end" style="color:#ef5350;font-weight:700">' + netV + '</td>' +
-            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#ef5350">' + buyAvg + '</td>' +
             '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
             '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
-            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#4caf50">' + sellAvg + '</td>' +
           '</tr>';
         }} else {{
           return '<tr>' +
             '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
             '<td class="text-end" style="color:#4caf50;font-weight:700">' + netV + '</td>' +
-            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#4caf50">' + sellAvg + '</td>' +
             '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
             '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
-            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#ef5350">' + buyAvg + '</td>' +
           '</tr>';
         }}
       }}).join('');
@@ -902,7 +971,8 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         var rS = rV(b.sell);
         parts.push('<circle cx="' + xS + '" cy="' + yy + '" r="' + rS +
           '" fill="#4caf50" opacity=".75" stroke="#2d6a4f" stroke-width=".5"' +
-          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) + '" data-avg="' + (b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
+          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) +
+          '" data-buyavg="' + (b.buy_avg||b.avg||0).toFixed(2) + '" data-sellavg="' + (b.sell_avg||b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
         if (b.sell >= threshold || b.side === 'sell') {{
           parts.push('<text x="' + (xS - rS - 2) + '" y="' + (yy+3) + '" fill="#81c995" font-size="8" text-anchor="end">' +
             _esc(shortName) + '</text>');
@@ -913,7 +983,8 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         var rB = rV(b.buy);
         parts.push('<circle cx="' + xB + '" cy="' + yy + '" r="' + rB +
           '" fill="#ef5350" opacity=".75" stroke="#7f1d1d" stroke-width=".5"' +
-          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) + '" data-avg="' + (b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
+          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) +
+          '" data-buyavg="' + (b.buy_avg||b.avg||0).toFixed(2) + '" data-sellavg="' + (b.sell_avg||b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
         if (b.buy >= threshold || b.side === 'buy') {{
           parts.push('<text x="' + (xB + rB + 2) + '" y="' + (yy+3) + '" fill="#f87171" font-size="8">' +
             _esc(shortName) + '</text>');
@@ -935,9 +1006,10 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       c.addEventListener('mouseenter', function() {{
         tipEl.innerHTML =
           '<b style="color:#f9a825">' + c.getAttribute('data-name') + '</b><br>' +
-          '買量 <span style="color:#ef5350;font-weight:700">' + Number(c.getAttribute('data-buy')).toLocaleString() + '</span> 張<br>' +
-          '賣量 <span style="color:#4caf50;font-weight:700">' + Number(c.getAttribute('data-sell')).toLocaleString() + '</span> 張<br>' +
-          '均價 <span style="color:#aaa">' + c.getAttribute('data-avg') + '</span>';
+          '買量 <span style="color:#ef5350;font-weight:700">' + Number(c.getAttribute('data-buy')).toLocaleString() + '</span> 張　' +
+          '買均 <span style="color:#ef5350">' + c.getAttribute('data-buyavg') + '</span><br>' +
+          '賣量 <span style="color:#4caf50;font-weight:700">' + Number(c.getAttribute('data-sell')).toLocaleString() + '</span> 張　' +
+          '賣均 <span style="color:#4caf50">' + c.getAttribute('data-sellavg') + '</span>';
         tipEl.style.display = 'block';
       }});
       c.addEventListener('mousemove', function(e) {{
