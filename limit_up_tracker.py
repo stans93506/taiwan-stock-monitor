@@ -204,12 +204,28 @@ def _fetch_twse_institutional(date_str: str) -> dict:
 
         # 欄位名稱用「買賣超」不是「淨買賣超」
         # 外資 = 外資及陸資(不含外資自營商) 買賣超
-        # 投信 = 投信 買賣超
-        # 自營 = 自行+避險 買賣超之和
-        c_foreign       = _find_col("外資及陸資", "買賣超", exclude=("自營商",))
-        c_trust         = _find_col("投信", "買賣超")
-        c_dealer_self   = _find_col("自行買賣", "買賣超")
-        c_dealer_hedge  = _find_col("避險", "買賣超")
+        # T86 實際欄位縮寫：外陸資/投信/自營商，含「買賣超」
+        # 外資 = 外陸資買賣超股數(不含外資自營商) [欄位含 "不含"]
+        # 投信 = 投信買賣超股數
+        # 自營 = 自營商買賣超股數（無自行/避險 qualifier 的合計欄）
+        c_foreign = next(
+            (i for i, f in enumerate(fields)
+             if "買賣超" in f and "不含" in f and ("外陸資" in f or "外資及陸資" in f)),
+            None
+        )
+        c_trust = next(
+            (i for i, f in enumerate(fields)
+             if "投信" in f and "買賣超" in f),
+            None
+        )
+        # 自營商合計：欄位名稱以「自營商」開頭（排除「外資自營商」），且含「買賣超」
+        # 不含「自行」「避險」qualifier → 即 field[11] 自營商買賣超股數
+        c_dealer = next(
+            (i for i, f in enumerate(fields)
+             if f.startswith("自營商") and "買賣超" in f
+             and "自行" not in f and "避險" not in f),
+            None
+        )
 
         for row in data.get("data", []):
             code = str(row[0]).strip() if row else ""
@@ -221,11 +237,10 @@ def _fetch_twse_institutional(date_str: str) -> dict:
                     return 0
                 return _parse_int(row[c]) // 1000  # 股 → 張
 
-            dealer = _get(c_dealer_self) + _get(c_dealer_hedge)
             result[code] = {
                 "foreign": _get(c_foreign),
                 "trust":   _get(c_trust),
-                "dealer":  dealer,
+                "dealer":  _get(c_dealer),
             }
     except Exception as e:
         print(f"  [法人] TWSE T86 失敗: {e}")
