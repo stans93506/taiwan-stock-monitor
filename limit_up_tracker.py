@@ -330,6 +330,8 @@ def fetch_limit_up(date_str: str = None) -> list:
 
 # ── 快取存取 ──────────────────────────────────────────────────────────
 def save_limit_up_cache(date_str: str, rows: list) -> None:
+    if not rows:
+        return  # 非交易日或空結果，不建立快取
     CACHE_DIR.mkdir(exist_ok=True)
     path = CACHE_DIR / f"{date_str}.json"
     if path.exists():
