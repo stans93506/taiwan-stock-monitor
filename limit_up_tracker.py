@@ -751,9 +751,10 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
           '</div>' +
         '</div>' +
         '<div style="margin-top:8px">' +
-          '<div style="color:#888;font-size:.72rem;margin-bottom:4px">券商分點泡泡圖（X=買賣量　Y=均價）</div>' +
+          '<div style="color:#888;font-size:.72rem;margin-bottom:4px">券商分點泡泡圖（X=買賣量　Y=均價，移至圓圈可查看明細）</div>' +
           '<svg id="luBubbleSvg" width="100%" height="240" style="display:block"></svg>' +
-        '</div>'
+        '</div>' +
+        '<div id="luDaytradeTbl" style="margin-top:10px"></div>'
       : '<div style="color:#666;font-size:.78rem;margin-top:6px">（分點資料未取得）</div>';
 
     container.innerHTML =
@@ -873,7 +874,8 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         var xS = xVol(b.sell, true);
         var rS = rV(b.sell);
         parts.push('<circle cx="' + xS + '" cy="' + yy + '" r="' + rS +
-          '" fill="#4caf50" opacity=".75" stroke="#2d6a4f" stroke-width=".5"/>');
+          '" fill="#4caf50" opacity=".75" stroke="#2d6a4f" stroke-width=".5"' +
+          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) + '" data-avg="' + (b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
         if (b.sell >= threshold || b.side === 'sell') {{
           parts.push('<text x="' + (xS - rS - 2) + '" y="' + (yy+3) + '" fill="#81c995" font-size="8" text-anchor="end">' +
             _esc(shortName) + '</text>');
@@ -883,7 +885,8 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         var xB = xVol(b.buy, false);
         var rB = rV(b.buy);
         parts.push('<circle cx="' + xB + '" cy="' + yy + '" r="' + rB +
-          '" fill="#ef5350" opacity=".75" stroke="#7f1d1d" stroke-width=".5"/>');
+          '" fill="#ef5350" opacity=".75" stroke="#7f1d1d" stroke-width=".5"' +
+          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) + '" data-avg="' + (b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
         if (b.buy >= threshold || b.side === 'buy') {{
           parts.push('<text x="' + (xB + rB + 2) + '" y="' + (yy+3) + '" fill="#f87171" font-size="8">' +
             _esc(shortName) + '</text>');
@@ -892,6 +895,66 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     }});
 
     svgEl.innerHTML = parts.join('');
+
+    // Hover tooltip
+    var tipEl = document.getElementById('luBubbleTip');
+    if (!tipEl) {{
+      tipEl = document.createElement('div');
+      tipEl.id = 'luBubbleTip';
+      tipEl.style.cssText = 'position:fixed;background:#1a1a2e;border:1px solid #555;color:#eee;padding:7px 12px;border-radius:6px;font-size:.78rem;pointer-events:none;display:none;z-index:9999;line-height:1.9;box-shadow:0 2px 10px rgba(0,0,0,.5)';
+      document.body.appendChild(tipEl);
+    }}
+    svgEl.querySelectorAll('circle[data-name]').forEach(function(c) {{
+      c.addEventListener('mouseenter', function() {{
+        tipEl.innerHTML =
+          '<b style="color:#f9a825">' + c.getAttribute('data-name') + '</b><br>' +
+          '買量 <span style="color:#ef5350;font-weight:700">' + Number(c.getAttribute('data-buy')).toLocaleString() + '</span> 張<br>' +
+          '賣量 <span style="color:#4caf50;font-weight:700">' + Number(c.getAttribute('data-sell')).toLocaleString() + '</span> 張<br>' +
+          '均價 <span style="color:#aaa">' + c.getAttribute('data-avg') + '</span>';
+        tipEl.style.display = 'block';
+      }});
+      c.addEventListener('mousemove', function(e) {{
+        tipEl.style.left = (e.clientX + 14) + 'px';
+        tipEl.style.top  = (e.clientY + 14) + 'px';
+      }});
+      c.addEventListener('mouseleave', function() {{
+        tipEl.style.display = 'none';
+      }});
+    }});
+
+    // 當沖 Top10
+    var dtList = brokers.filter(function(b) {{ return (b.buy||0) > 0 && (b.sell||0) > 0; }});
+    dtList.forEach(function(b) {{ b._dt = Math.min(b.buy, b.sell); }});
+    dtList.sort(function(a, b) {{ return b._dt - a._dt; }});
+    var top10 = dtList.slice(0, 10);
+    var dtEl = document.getElementById('luDaytradeTbl');
+    if (dtEl && top10.length > 0) {{
+      var dtRows = top10.map(function(b, i) {{
+        return '<tr>' +
+          '<td style="color:#888">' + (i+1) + '</td>' +
+          '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
+          '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
+          '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
+          '<td class="text-end;font-weight:700" style="color:#f9a825;font-weight:700">' + b._dt.toLocaleString() + '</td>' +
+          '<td class="text-end" style="color:#aaa">' + (b.avg||0).toFixed(2) + '</td>' +
+        '</tr>';
+      }}).join('');
+      dtEl.innerHTML =
+        '<div style="color:#888;font-size:.72rem;margin-bottom:4px">⚡ 當沖分點 Top' + top10.length + '（同日買賣皆有）</div>' +
+        '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
+          '<thead><tr>' +
+            '<th>#</th>' +
+            '<th>券商</th>' +
+            '<th class="text-end" style="color:#ef5350">買張</th>' +
+            '<th class="text-end" style="color:#4caf50">賣張</th>' +
+            '<th class="text-end" style="color:#f9a825">當沖量</th>' +
+            '<th class="text-end">均價</th>' +
+          '</tr></thead>' +
+          '<tbody>' + dtRows + '</tbody>' +
+        '</table>';
+    }} else if (dtEl) {{
+      dtEl.innerHTML = '<div style="color:#555;font-size:.72rem">（無當沖資料）</div>';
+    }}
   }}
 
   function _esc(s) {{
