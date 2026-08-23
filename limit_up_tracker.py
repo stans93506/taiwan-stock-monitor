@@ -312,6 +312,13 @@ def fetch_limit_up(date_str: str = None) -> list:
             if not _is_limit_up(s["close"], s["change"]):
                 continue
             code = s["code"]
+            # 過濾權證（6位純數字）、牛熊證、結構型商品
+            if code.isdigit() and len(code) >= 6:
+                continue
+            # 過濾名稱含認購/認售/權證/牛/熊 的衍生商品
+            name = s["name"]
+            if any(k in name for k in ("認購", "認售", "權證", "牛證", "熊證")):
+                continue
             iv = inst.get(code, {})
             result.append({
                 "market":   market,
