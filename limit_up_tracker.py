@@ -685,28 +685,55 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     }}
 
     function brokerTable(list, side) {{
-      var hdNet  = side === 'sell' ? '賣超' : '買超';
-      var clrNet = side === 'sell' ? '#4caf50' : '#ef5350';
+      var isBuy = side === 'buy';
       var rows = list.map(function(b) {{
         var netV = (b.net||0).toLocaleString();
-        return '<tr>' +
-          '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
-          '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
-          '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
-          '<td class="text-end;font-weight:700" style="color:' + clrNet + '">' + netV + '</td>' +
-          '<td class="text-end" style="color:#aaa">' + (b.avg||0).toFixed(2) + '</td>' +
-        '</tr>';
+        var avg  = (b.avg||0).toFixed(2);
+        if (isBuy) {{
+          return '<tr>' +
+            '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
+            '<td class="text-end" style="color:#ef5350;font-weight:700">' + netV + '</td>' +
+            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
+            '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
+            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+          '</tr>';
+        }} else {{
+          return '<tr>' +
+            '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
+            '<td class="text-end" style="color:#4caf50;font-weight:700">' + netV + '</td>' +
+            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
+            '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
+            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+          '</tr>';
+        }}
       }}).join('');
-      return '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
-        '<thead><tr>' +
-          '<th>券商</th>' +
-          '<th class="text-end" style="color:#ef5350">買張</th>' +
-          '<th class="text-end" style="color:#4caf50">賣張</th>' +
-          '<th class="text-end" style="color:' + clrNet + '">' + hdNet + '</th>' +
-          '<th class="text-end">均價</th>' +
-        '</tr></thead>' +
-        '<tbody>' + rows + '</tbody>' +
-        '</table>';
+      if (isBuy) {{
+        return '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
+          '<thead><tr>' +
+            '<th>券商</th>' +
+            '<th class="text-end" style="color:#ef5350">買超</th>' +
+            '<th class="text-end" style="color:#aaa">買均</th>' +
+            '<th class="text-end" style="color:#ef5350">買張</th>' +
+            '<th class="text-end" style="color:#4caf50">賣張</th>' +
+            '<th class="text-end" style="color:#aaa">賣均</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+          '</table>';
+      }} else {{
+        return '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
+          '<thead><tr>' +
+            '<th>券商</th>' +
+            '<th class="text-end" style="color:#4caf50">賣超</th>' +
+            '<th class="text-end" style="color:#aaa">賣均</th>' +
+            '<th class="text-end" style="color:#4caf50">賣張</th>' +
+            '<th class="text-end" style="color:#ef5350">買張</th>' +
+            '<th class="text-end" style="color:#aaa">買均</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+          '</table>';
+      }}
     }}
 
     function instBar(label, val, maxV) {{
@@ -742,12 +769,12 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     var brokerSection = hasBrokers
       ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">' +
           '<div>' +
-            '<div style="color:#4caf50;font-size:.75rem;margin-bottom:4px">▼ 賣超分點 Top' + sellers.length + '</div>' +
-            brokerTable(sellers, 'sell') +
-          '</div>' +
-          '<div>' +
             '<div style="color:#ef5350;font-size:.75rem;margin-bottom:4px">▲ 買超分點 Top' + buyers.length + '</div>' +
             brokerTable(buyers, 'buy') +
+          '</div>' +
+          '<div>' +
+            '<div style="color:#4caf50;font-size:.75rem;margin-bottom:4px">▼ 賣超分點 Top' + sellers.length + '</div>' +
+            brokerTable(sellers, 'sell') +
           '</div>' +
         '</div>' +
         '<div style="margin-top:8px">' +
@@ -815,7 +842,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
 
     function xVol(vol, isSell) {{
       var halfW = cW * 0.44;
-      return isSell ? (midX - vol / maxVol * halfW) : (midX + vol / maxVol * halfW);
+      return isSell ? (midX + vol / maxVol * halfW) : (midX - vol / maxVol * halfW);
     }}
     function yP(price) {{
       return PAD_T + cH - (price - minP) / pRange * cH;
@@ -848,8 +875,8 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       '" stroke="#444" stroke-width="1"/>');
 
     // X-axis label
-    parts.push('<text x="' + (midX - cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">←賣出</text>');
-    parts.push('<text x="' + (midX + cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">買進→</text>');
+    parts.push('<text x="' + (midX - cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">←買進</text>');
+    parts.push('<text x="' + (midX + cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">賣出→</text>');
 
     // Draw connecting lines first (under circles)
     brokers.forEach(function(b) {{

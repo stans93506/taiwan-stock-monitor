@@ -193,7 +193,11 @@
 <!-- 頂部導覽 -->
 <div class="top-nav">
   <span class="brand">📊 台股財務監測</span>
+<<<<<<< HEAD
   <span class="meta">更新：2026-08-23 22:06 ｜ 來源：公開資訊觀測站</span>
+=======
+  <span class="meta">更新：2026-08-23 22:00 ｜ 來源：公開資訊觀測站</span>
+>>>>>>> c950458 (feat: swap buy/sell layout and reorder broker table columns)
 </div>
 
 <!-- 分頁列 -->
@@ -4989,7 +4993,11 @@
 <div class="container-fluid px-3 py-2">
   <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
     <h5 class="mb-0">主動ETF持股追蹤</h5>
+<<<<<<< HEAD
     <small class="text-muted">更新：2026/08/21 22:06</small>
+=======
+    <small class="text-muted">更新：2026/08/21 22:00</small>
+>>>>>>> c950458 (feat: swap buy/sell layout and reorder broker table columns)
     <select id="etfDateSelect" class="form-select form-select-sm d-inline-block" style="width:auto;min-width:120px;background-color:#2a2a3e;color:#e0e0e0;border-color:#555" onchange="etfSelectDate(this.value)"><option value="1150821">115/08/21</option><option value="1150820">115/08/20</option><option value="1150819">115/08/19</option><option value="1150818">115/08/18</option><option value="1150817">115/08/17</option><option value="1150814">115/08/14</option><option value="1150813">115/08/13</option><option value="1150812">115/08/12</option><option value="1150811">115/08/11</option></select>
     
   </div>
@@ -5777,6 +5785,7 @@
   <!-- ═══ 漲停分頁 ═══ -->
   <div id="tab-limitup" class="tab-pane">
     
+
 <div class="card mb-3">
   <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap">
     <span class="fw-bold" style="color:#f97316;font-size:1rem">漲停股追蹤</span>
@@ -5970,28 +5979,55 @@
     }
 
     function brokerTable(list, side) {
-      var hdNet  = side === 'sell' ? '賣超' : '買超';
-      var clrNet = side === 'sell' ? '#4caf50' : '#ef5350';
+      var isBuy = side === 'buy';
       var rows = list.map(function(b) {
         var netV = (b.net||0).toLocaleString();
-        return '<tr>' +
-          '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
-          '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
-          '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
-          '<td class="text-end;font-weight:700" style="color:' + clrNet + '">' + netV + '</td>' +
-          '<td class="text-end" style="color:#aaa">' + (b.avg||0).toFixed(2) + '</td>' +
-        '</tr>';
+        var avg  = (b.avg||0).toFixed(2);
+        if (isBuy) {
+          return '<tr>' +
+            '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
+            '<td class="text-end" style="color:#ef5350;font-weight:700">' + netV + '</td>' +
+            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
+            '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
+            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+          '</tr>';
+        } else {
+          return '<tr>' +
+            '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
+            '<td class="text-end" style="color:#4caf50;font-weight:700">' + netV + '</td>' +
+            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+            '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
+            '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
+            '<td class="text-end" style="color:#aaa">' + avg + '</td>' +
+          '</tr>';
+        }
       }).join('');
-      return '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
-        '<thead><tr>' +
-          '<th>券商</th>' +
-          '<th class="text-end" style="color:#ef5350">買張</th>' +
-          '<th class="text-end" style="color:#4caf50">賣張</th>' +
-          '<th class="text-end" style="color:' + clrNet + '">' + hdNet + '</th>' +
-          '<th class="text-end">均價</th>' +
-        '</tr></thead>' +
-        '<tbody>' + rows + '</tbody>' +
-        '</table>';
+      if (isBuy) {
+        return '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
+          '<thead><tr>' +
+            '<th>券商</th>' +
+            '<th class="text-end" style="color:#ef5350">買超</th>' +
+            '<th class="text-end" style="color:#aaa">買均</th>' +
+            '<th class="text-end" style="color:#ef5350">買張</th>' +
+            '<th class="text-end" style="color:#4caf50">賣張</th>' +
+            '<th class="text-end" style="color:#aaa">賣均</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+          '</table>';
+      } else {
+        return '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
+          '<thead><tr>' +
+            '<th>券商</th>' +
+            '<th class="text-end" style="color:#4caf50">賣超</th>' +
+            '<th class="text-end" style="color:#aaa">賣均</th>' +
+            '<th class="text-end" style="color:#4caf50">賣張</th>' +
+            '<th class="text-end" style="color:#ef5350">買張</th>' +
+            '<th class="text-end" style="color:#aaa">買均</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+          '</table>';
+      }
     }
 
     function instBar(label, val, maxV) {
@@ -6027,12 +6063,12 @@
     var brokerSection = hasBrokers
       ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">' +
           '<div>' +
-            '<div style="color:#4caf50;font-size:.75rem;margin-bottom:4px">▼ 賣超分點 Top' + sellers.length + '</div>' +
-            brokerTable(sellers, 'sell') +
-          '</div>' +
-          '<div>' +
             '<div style="color:#ef5350;font-size:.75rem;margin-bottom:4px">▲ 買超分點 Top' + buyers.length + '</div>' +
             brokerTable(buyers, 'buy') +
+          '</div>' +
+          '<div>' +
+            '<div style="color:#4caf50;font-size:.75rem;margin-bottom:4px">▼ 賣超分點 Top' + sellers.length + '</div>' +
+            brokerTable(sellers, 'sell') +
           '</div>' +
         '</div>' +
         '<div style="margin-top:8px">' +
@@ -6100,7 +6136,7 @@
 
     function xVol(vol, isSell) {
       var halfW = cW * 0.44;
-      return isSell ? (midX - vol / maxVol * halfW) : (midX + vol / maxVol * halfW);
+      return isSell ? (midX + vol / maxVol * halfW) : (midX - vol / maxVol * halfW);
     }
     function yP(price) {
       return PAD_T + cH - (price - minP) / pRange * cH;
@@ -6133,8 +6169,8 @@
       '" stroke="#444" stroke-width="1"/>');
 
     // X-axis label
-    parts.push('<text x="' + (midX - cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">←賣出</text>');
-    parts.push('<text x="' + (midX + cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">買進→</text>');
+    parts.push('<text x="' + (midX - cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">←買進</text>');
+    parts.push('<text x="' + (midX + cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">賣出→</text>');
 
     // Draw connecting lines first (under circles)
     brokers.forEach(function(b) {
@@ -6258,8 +6294,6 @@
 </script>
 
   </div>
-
-</div>
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
