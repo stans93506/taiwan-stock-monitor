@@ -386,10 +386,10 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
 
     def _fmt_inst(v: int) -> str:
         if v > 0:
-            return f"<span style='color:#4caf50;font-weight:600'>+{v:,}</span>"
+            return f"<span style='color:#ef5350;font-weight:600'>+{v:,}</span>"  # 買超紅
         if v < 0:
-            return f"<span style='color:#ef5350;font-weight:600'>{v:,}</span>"
-        return "<span style='color:#888'>-</span>"
+            return f"<span style='color:#4caf50;font-weight:600'>{v:,}</span>"  # 賣超綠
+        return "<span style='color:#aaa'>0</span>"
 
     def _rows_html(rows) -> str:
         parts = []
@@ -492,9 +492,9 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         ? "<span class='badge bg-primary'>上市</span>"
         : "<span class='badge' style='background:#7c3aed'>上櫃</span>";
       function fi(v) {{
-        if (v > 0) return "<span style='color:#4caf50;font-weight:600'>+" + v.toLocaleString() + "</span>";
-        if (v < 0) return "<span style='color:#ef5350;font-weight:600'>" + v.toLocaleString() + "</span>";
-        return "<span style='color:#888'>-</span>";
+        if (v > 0) return "<span style='color:#ef5350;font-weight:600'>+" + v.toLocaleString() + "</span>";
+        if (v < 0) return "<span style='color:#4caf50;font-weight:600'>" + v.toLocaleString() + "</span>";
+        return "<span style='color:#aaa'>0</span>";
       }}
       return '<tr>' +
         '<td>' + badge + '</td>' +
