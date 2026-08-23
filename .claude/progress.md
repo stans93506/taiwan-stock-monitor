@@ -1,82 +1,104 @@
-# 台股財務監測 — 開發進度
+# 工作進度紀錄
 
-_最後更新：2026-08-08_
-
----
-
-## 目前專案狀態
-
-正在維護並持續改善 `D:\台股營收監測\fetch_revenue.py` 產出的 GitHub Pages 監測頁面。
-雲端每 30 分鐘自動觸發一次（GitHub Actions cron `*/30 * * * *`）。
+更新時間：2026-08-23
 
 ---
 
-## 本 session 已完成的項目（2026-08-07 ~ 08-08）
+## 目前任務
 
-### 月自結 tab — 新功能
-- [x] **歷史季報 detail panel**：點擊月自結列展開左右欄
-  - 左欄：公告標題（`主旨`）+ 公告原文（無滾輪，全部展開）
-  - 右欄：最近4季（季EPS、月均EPS÷3、毛利率%、營益率%）
-  - 季度資料來源：`fetch_monthly_qtr_history()` → `monthly_qtr_hist_cache.json`（MOPS `ajax_t163sb15`）
-- [x] **`fetch_monthly_qtr_history()`**：抓取月自結公司的歷史季報（115年+114年），單季值以累計差計算，cache 以 `expected_latest_q` 失效
-- [x] `window.MONTHLY_QTR_DATA` / `window.MONTHLY_TEXT_DATA` 嵌入 HTML
+**漲停 (limit-up) tab 每列點擊展開詳細面板**
 
-### 月自結 EPS 解析修復
-- [x] **6024 群益期**（`每股稅後盈餘：0.78` 冒號格式）→ 新增冒號格式 regex
-- [x] **6015 宏遠證**（`每股稅後(損)益:-0.78` 負值格式）→ 修正 guard keyword、regex 放寬 `[^\d：:\n]{0,10}`
-- [x] **2845 遠東銀**（`每股稅後盈餘(元)  0.08  0.61` 空格對齊表格）→ 新增 `每股稅後[^\d（(\n]{0,8}[（(]元[）)]\s+` regex
-- [x] **HTML 表格解析稅後優先**：改為分別追蹤 `eps_at_tbl`/`eps_bt_tbl`/`eps_gen_tbl`，稅後 > 稅前 > 一般
-
-### 月自結公告原文顯示修復
-- [x] **`原文` 改用 `_extract_mops_body(text)`**（同季報），去除 MOPS 頁面樣板（"公開資訊觀測站\n\n..."）
-- [x] **NaN display bug**：`_mth_text_map` 建立時加 `pd.isna()` 判斷，避免 pandas NaN 被 `str()` 成 "nan" 字串顯示
-- [x] **`qtr-orig-text` 移除滾輪**：刪除 `max-height:220px; overflow-y:auto`（月自結/季報共用）
-
-### SPO 現增過濾修復
-- [x] **8916 光隆**（撤回）、**3413 京鼎**（參與認購）→ 加入 `SPO_EXCLUDE`
-- [x] **2002 中鋼**（投資外部子公司的現增）→ 新增 `SPO_REQUIRE = ["辦理", "現金增資發行"]`，4 處 filter 均加判斷
-
-### 瀏覽器啟動修復
-- [x] 改用 `subprocess.Popen` 直接找 Chrome 路徑，不再用系統預設（避免開到 Edge）
+點擊漲停股票列，應在其下方插入一列 detail panel，顯示：
+- 券商分點買賣超 Top15 買超/賣超表格
+- 氣泡圖（bubble chart）
+- 三大法人摘要
 
 ---
 
-## 還沒做 / 待確認
+## 已修改的檔案
 
-- [ ] **月自結 "nan" 根本原因未查明**：雲端 16:08 UTC 跑出的 HTML 中 2845/6021 等公司仍顯示 "nan"，本機推上後應已修復，待下次公告確認
-  - 暫定原因：GitHub Actions 在 UTC 時區，`today_roc` 與台灣時間差一天，導致快取讀取路徑不同（`history_pre` vs `history_today_missed`），但模擬結果仍應正確，根本原因待查
-- [ ] 營收「最新申報」時間顯示疑似不準（顯示 08/05 但表格有 08/06 資料，待查 `rev_latest` 計算邏輯）
-- [x] GitHub repo Settings → Secrets → `GROQ_API_KEY`（已設定）
+### `D:\台股營收監測\limit_up_tracker.py`
+
+1. **`_rows_html()`**（靜態初始列）
+   - 移除 `onclick` 屬性，改用 `data-code` 屬性搭配事件委派
+   - `<tr data-code='{code}' style='cursor:pointer'>`
+
+2. **`renderRow` JS 函式**（動態列，由 `luFilter()` 呼叫）
+   - 移除 onclick，避免 Python f-string 引號跳脫 bug
+   - 改為 `"<tr data-code='" + code + "' style='cursor:pointer'>"`
+
+3. **`luFilter()`**
+   - 在設定完 innerHTML 後，直接對每個 `tr[data-code]` 指派 `tr.onclick`
+   - 跳過 `id='luDetailRow'` 的列
+
+4. **`window.luToggleDetail`**
+   - 加上 `try-catch`，catch 中呼叫 `alert()` 顯示錯誤訊息（診斷用）
+   - 找不到股票或 TR 時也會彈出 alert
+
+5. **事件委派（Event Delegation）**（IIFE 末尾）
+   ```javascript
+   document.getElementById('luTbody').addEventListener('click', function(e) {
+       var tr = e.target.closest('tr[data-code]');
+       if (!tr || tr.id === 'luDetailRow') return;
+       window.luToggleDetail(tr.dataset.code);
+   });
+   ```
+
+### `D:\台股營收監測\launch.bat`
+
+- 開頭加入 `taskkill /F /IM python.exe /T` 殺掉舊的背景 Python 進程（避免舊版程式碼每 10 分鐘覆蓋 HTML）
 
 ---
 
-## 測試結果
+## 已解決的問題
 
-| 功能 | 本機 | 雲端 |
-|------|------|------|
-| 季報抓取 | ✅ | ✅ |
-| 季報 detail 面板（左右欄） | ✅ | ✅ |
-| 季報季度下拉切換 | ✅ | ✅ |
-| 營收月份下拉 | ✅ | ✅ |
-| 月自結 EPS 解析（遠東銀空格格式）| ✅ | 待確認 |
-| 月自結 detail 公告原文顯示 | ✅ | 待確認（已推本機結果） |
-| SPO 過濾（8916/3413/2002）| ✅ | ✅ |
-| Chrome 開啟（非 Edge）| ✅ | — |
-| AI 新聞分析 | ✅（本機環境變數）| ✅（已設 GROQ_API_KEY） |
-| 每 30 分鐘自動更新 | — | ✅ |
-
----
-
-## 主要檔案
-
-| 檔案 | 說明 |
+| 問題 | 解法 |
 |------|------|
-| `fetch_revenue.py` | 主程式，所有邏輯都在這 |
-| `.github/workflows/daily.yml` | GitHub Actions workflow |
-| `monthly_cache.json` | 月自結快取（含主旨/原文） |
-| `monthly_prev_cache.json` | 月自結上季 EPS 快取 |
-| `monthly_qtr_hist_cache.json` | 月自結公司歷史季報快取（新） |
-| `qtr_cache.json` | 季報歷史快取 |
-| `qtr_archive.json` | 季報封存 |
-| `rev_cache.json` | 月營收快取 |
-| `rev_archive.json` | 月營收封存 |
+| Python f-string `\"` 跳脫 bug 導致 onclick 立即執行 | 移除 onclick，改用 event delegation |
+| 舊 Python 背景進程覆蓋修正後的 HTML | launch.bat 加入 taskkill |
+| Git merge 從 CI 拉取舊 HTML | 已 commit + push，CI 使用最新程式碼 |
+| push rejected（non-fast-forward） | `git stash -u && git merge -X ours origin/main && git push` |
+
+---
+
+## 還沒做完的事
+
+### 核心問題：點擊列仍無反應
+
+使用者多次反映「點了沒反應」，目前 HTML（mtime 20:26）內含：
+- try-catch + alert 診斷版本的 `luToggleDetail`
+- querySelectorAll 直接指派 onclick
+- addEventListener 事件委派
+
+**下一步診斷**：
+1. 使用者需 **Ctrl+F5 強制重整**頁面
+2. 點擊漲停列，觀察是否彈出 alert
+3. 根據 alert 內容判斷：
+   - **沒有 alert** → onclick/delegation 完全沒觸發（可能點擊區域問題、Z-index 遮擋、或 IIFE 執行時機問題）
+   - **alert「找不到股票」** → `_luAll` 陣列空的或 code 不匹配
+   - **alert「luToggleDetail 錯誤: ...」** → `renderDetailPanel` 內部 JS 錯誤（最可能是 `luDateSelect` 為 null 或 SVG 渲染問題）
+
+### 待驗證功能
+
+- [ ] detail panel 正確展開/收合
+- [ ] Top15 買超/賣超表格資料正確顯示
+- [ ] 氣泡圖渲染
+- [ ] 三大法人摘要欄位
+
+---
+
+## 輔助工具
+
+`C:\Users\user\AppData\Local\Temp\claude\...\scratchpad\regen_lu.py`
+- 快速 patch 腳本：只替換 `台股監測.html` 內的 limit-up section，不需重跑整個 `fetch_revenue.py`
+- 用法：`python regen_lu.py`，然後 `python -c "import shutil; shutil.copy('台股監測.html', 'index.html')"`
+
+---
+
+## 架構備忘
+
+- `limit_up_tracker.py` → `generate_limit_up_html()` 產生 limit-up HTML+JS
+- `fetch_revenue.py` line 6477：`HTML_TEMPLATE.format(..., limit_up_html=...)` 嵌入
+- **重要**：limit-up 的 `<script>` IIFE 位於 `{limit_up_html}` placeholder，在 jQuery CDN tag **之前**執行
+  → 因此 limit-up JS **不能使用 jQuery**，必須用原生 JS
+- 其他 tab（營收、季報）使用 jQuery delegation，寫法不同

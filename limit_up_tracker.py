@@ -622,6 +622,11 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       }}
     }});
     document.getElementById('luTbody').innerHTML = html;
+    document.querySelectorAll('#luTbody tr[data-code]').forEach(function(tr) {{
+      if (tr.id !== 'luDetailRow') {{
+        tr.onclick = function() {{ window.luToggleDetail(this.dataset.code); }};
+      }}
+    }});
     document.getElementById('luEntries').textContent =
       '顯示 ' + rows.length + ' 筆（共 ' + _luAll.length + ' 筆）';
 
@@ -636,16 +641,17 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
 
   // ── 券商分點面板 ──────────────────────────────────────────────────
   window.luToggleDetail = function(code) {{
+    try {{
     var existing = document.getElementById('luDetailRow');
     var wasCode = existing ? existing.dataset.code : null;
     if (existing) existing.remove();
     if (wasCode === code) return;
 
     var stockRow = _luAll.find(function(r) {{ return r.code === code; }});
-    if (!stockRow) return;
+    if (!stockRow) {{ alert('找不到股票: ' + code + '\\n_luAll長度: ' + _luAll.length); return; }}
 
     var sourceTr = document.querySelector('#luTbody tr[data-code="' + code + '"]');
-    if (!sourceTr) return;
+    if (!sourceTr) {{ alert('找不到TR: ' + code); return; }}
 
     var detailTr = document.createElement('tr');
     detailTr.id = 'luDetailRow';
@@ -657,6 +663,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     detailTr.appendChild(td);
     sourceTr.parentNode.insertBefore(detailTr, sourceTr.nextSibling);
     renderDetailPanel(td, stockRow);
+    }} catch(err) {{ alert('luToggleDetail 錯誤: ' + err.message + '\\n' + err.stack); }}
   }};
 
   function renderDetailPanel(container, stockRow) {{
@@ -763,7 +770,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
               '　漲停 <span style="color:#ef5350;font-weight:700">' + stockRow.close.toFixed(2) + '</span></span>' +
             '<span style="color:#666;font-size:.75rem;margin-left:8px">' + _esc(stockRow.market) + '　' + _esc(stockRow.sector) + '</span>' +
           '</div>' +
-          '<button onclick="var d=document.getElementById(\'luDetailRow\');if(d)d.remove();" ' +
+          '<button onclick="var d=document.getElementById(\\'luDetailRow\\');if(d)d.remove();" ' +
             'style="background:#333;border:none;color:#ccc;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:1rem">×</button>' +
         '</div>' +
         '<div style="display:grid;grid-template-columns:180px 1fr;gap:16px;align-items:start">' +
