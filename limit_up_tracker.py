@@ -5,6 +5,7 @@
 """
 
 import json, os, requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -287,6 +288,8 @@ def _fetch_tpex_institutional(date_str: str) -> dict:
     return result
 
 
+# ── 券商分點買賣超 ────────────────────────────────────────────────────
+
 # ── 主抓取函式 ────────────────────────────────────────────────────────
 def fetch_limit_up(date_str: str = None) -> list:
     """
@@ -412,10 +415,11 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
             mkt = r.get("market", "")
             badge = ("<span class='badge bg-primary'>上市</span>" if mkt == "上市"
                      else "<span class='badge' style='background:#7c3aed'>上櫃</span>")
+            code = r['code']
             parts.append(
-                f"<tr>"
+                f"<tr data-code='{code}' onclick=\"luToggleDetail('{code}')\" style='cursor:pointer'>"
                 f"<td>{badge}</td>"
-                f"<td style='color:#4fc3f7;font-weight:700'>{r['code']}</td>"
+                f"<td style='color:#4fc3f7;font-weight:700'>{code}</td>"
                 f"<td>{r['name']}</td>"
                 f"<td class='text-end'>{r['close']:.2f}</td>"
                 f"<td class='text-end'>{r.get('vol_lots',0):,}</td>"
@@ -481,6 +485,8 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     _luAll = _LU_HIST[key] || [];
     document.getElementById('luCount').textContent =
       _luAll.length ? _luAll.length + ' 檔' : '今日無資料';
+    var det = document.getElementById('luDetailRow');
+    if (det) det.remove();
     luFilter();
   }};
 
@@ -489,6 +495,30 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     else {{ _luSortKey = key; _luSortAsc = false; }}
     luFilter();
   }};
+
+  function fi(v) {{
+    if (v > 0) return "<span style='color:#ef5350;font-weight:600'>+" + v.toLocaleString() + "</span>";
+    if (v < 0) return "<span style='color:#4caf50;font-weight:600'>" + v.toLocaleString() + "</span>";
+    return "<span style='color:#aaa'>0</span>";
+  }}
+
+  function renderRow(r) {{
+    var badge = r.market === '上市'
+      ? "<span class='badge bg-primary'>上市</span>"
+      : "<span class='badge' style='background:#7c3aed'>上櫃</span>";
+    var code = r.code || '';
+    return "<tr data-code='" + code + "' onclick=\"luToggleDetail('" + code + "')\" style='cursor:pointer'>" +
+      '<td>' + badge + '</td>' +
+      '<td style="color:#4fc3f7;font-weight:700">' + code + '</td>' +
+      '<td>' + (r.name||'') + '</td>' +
+      '<td class="text-end">' + (r.close||0).toFixed(2) + '</td>' +
+      '<td class="text-end">' + (r.vol_lots||0).toLocaleString() + '</td>' +
+      '<td class="text-end">' + fi(r.foreign||0) + '</td>' +
+      '<td class="text-end">' + fi(r.trust||0) + '</td>' +
+      '<td class="text-end">' + fi(r.dealer||0) + '</td>' +
+      '<td>' + (r.sector||'') + '</td>' +
+      '</tr>';
+  }}
 
   window.luFilter = function() {{
     var q = (document.getElementById('luSearch').value || '').toLowerCase();
@@ -502,30 +532,180 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       return _luSortAsc ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
     }});
 
-    document.getElementById('luTbody').innerHTML = rows.map(function(r) {{
-      var badge = r.market === '上市'
-        ? "<span class='badge bg-primary'>上市</span>"
-        : "<span class='badge' style='background:#7c3aed'>上櫃</span>";
-      function fi(v) {{
-        if (v > 0) return "<span style='color:#ef5350;font-weight:600'>+" + v.toLocaleString() + "</span>";
-        if (v < 0) return "<span style='color:#4caf50;font-weight:600'>" + v.toLocaleString() + "</span>";
-        return "<span style='color:#aaa'>0</span>";
+    var det = document.getElementById('luDetailRow');
+    var openCode = det ? det.dataset.code : null;
+
+    var html = '';
+    rows.forEach(function(r) {{
+      html += renderRow(r);
+      if (openCode && r.code === openCode) {{
+        html += '<tr id="luDetailRow" data-code="' + openCode + '"><td colspan="9" style="padding:0;background:#0d0d1a"></td></tr>';
       }}
-      return '<tr>' +
-        '<td>' + badge + '</td>' +
-        '<td style="color:#4fc3f7;font-weight:700">' + (r.code||'') + '</td>' +
-        '<td>' + (r.name||'') + '</td>' +
-        '<td class="text-end">' + (r.close||0).toFixed(2) + '</td>' +
-        '<td class="text-end">' + (r.vol_lots||0).toLocaleString() + '</td>' +
-        '<td class="text-end">' + fi(r.foreign||0) + '</td>' +
-        '<td class="text-end">' + fi(r.trust||0) + '</td>' +
-        '<td class="text-end">' + fi(r.dealer||0) + '</td>' +
-        '<td>' + (r.sector||'') + '</td>' +
-        '</tr>';
-    }}).join('');
+    }});
+    document.getElementById('luTbody').innerHTML = html;
     document.getElementById('luEntries').textContent =
       '顯示 ' + rows.length + ' 筆（共 ' + _luAll.length + ' 筆）';
+
+    if (openCode) {{
+      var detTd = document.querySelector('#luDetailRow td');
+      if (detTd) {{
+        var stockRow = _luAll.find(function(r){{ return r.code === openCode; }});
+        if (stockRow) renderDetailPanel(detTd, stockRow);
+      }}
+    }}
   }};
+
+  // ── 券商分點面板 ──────────────────────────────────────────────────
+  window.luToggleDetail = function(code) {{
+    var existing = document.getElementById('luDetailRow');
+    var wasCode = existing ? existing.dataset.code : null;
+    if (existing) existing.remove();
+    if (wasCode === code) return; // 再次點擊關閉
+
+    var stockRow = _luAll.find(function(r) {{ return r.code === code; }});
+    if (!stockRow) return;
+
+    var sourceTr = document.querySelector('#luTbody tr[data-code="' + code + '"]');
+    if (!sourceTr) return;
+
+    var detailTr = document.createElement('tr');
+    detailTr.id = 'luDetailRow';
+    detailTr.dataset.code = code;
+    var td = document.createElement('td');
+    td.colSpan = 9;
+    td.style.padding = '0';
+    td.style.background = '#0d0d1a';
+    detailTr.appendChild(td);
+    sourceTr.parentNode.insertBefore(detailTr, sourceTr.nextSibling);
+    renderDetailPanel(td, stockRow);
+  }};
+
+  function renderDetailPanel(container, stockRow) {{
+    var dateKey = document.getElementById('luDateSelect').value;
+    var sel = document.getElementById('luDateSelect');
+    var dateLabel = sel.options[sel.selectedIndex].text;
+
+    var f = stockRow.foreign || 0;
+    var t = stockRow.trust   || 0;
+    var d = stockRow.dealer  || 0;
+    var total3 = f + t + d;
+
+    // Same-sector peers also hitting limit-up today
+    var sector = stockRow.sector || '';
+    var peers = _luAll.filter(function(r) {{
+      return r.sector === sector && r.code !== stockRow.code;
+    }});
+
+    function instBar(label, val, maxV) {{
+      var pct = maxV > 0 ? Math.min(100, Math.abs(val) / maxV * 100) : 0;
+      var color = val > 0 ? '#ef5350' : (val < 0 ? '#4caf50' : '#555');
+      var sign  = val > 0 ? '+' : '';
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">' +
+        '<span style="width:36px;color:#888;font-size:.75rem;text-align:right">' + label + '</span>' +
+        '<div style="flex:1;background:#1e1e2e;border-radius:3px;height:14px;position:relative">' +
+          '<div style="position:absolute;' + (val >= 0 ? 'left:0' : 'right:0') +
+            ';top:0;bottom:0;width:' + pct.toFixed(1) + '%;background:' + color +
+            ';border-radius:3px;opacity:.8"></div>' +
+        '</div>' +
+        '<span style="width:60px;text-align:right;color:' + color + ';font-weight:700;font-size:.8rem">' +
+          sign + val.toLocaleString() + '</span>' +
+      '</div>';
+    }}
+
+    var maxInst = Math.max(1, Math.abs(f), Math.abs(t), Math.abs(d));
+
+    var peerHtml = '';
+    if (peers.length > 0) {{
+      peerHtml = '<div style="margin-top:12px">' +
+        '<div style="color:#888;font-size:.75rem;margin-bottom:4px">同族群漲停（' + _esc(sector) + '）</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+        peers.map(function(p) {{
+          return '<span style="background:#1e1e2e;border:1px solid #333;border-radius:4px;padding:2px 8px;font-size:.78rem;cursor:default">' +
+            '<span style="color:#4fc3f7">' + p.code + '</span> ' + _esc(p.name) +
+            ' <span style="color:#aaa">' + p.close.toFixed(2) + '</span>' +
+            '</span>';
+        }}).join('') +
+        '</div></div>';
+    }}
+
+    container.innerHTML =
+      '<div style="padding:10px 14px;background:#0d0d1a;border-top:2px solid #f97316">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+          '<div>' +
+            '<span style="color:#f97316;font-weight:700;font-size:.95rem">' + stockRow.code + ' ' + _esc(stockRow.name) + '</span>' +
+            '<span style="color:#aaa;font-size:.8rem;margin-left:10px">' + _esc(dateLabel) + '　收盤 <span style="color:#ef5350;font-weight:700">' + stockRow.close.toFixed(2) + '</span></span>' +
+            '<span style="color:#888;font-size:.78rem;margin-left:10px">' + _esc(stockRow.market) + '　' + _esc(stockRow.sector) + '</span>' +
+          '</div>' +
+          '<button onclick="var d=document.getElementById(\'luDetailRow\');if(d)d.remove();" ' +
+            'style="background:#333;border:none;color:#ccc;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:1rem">×</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:220px 1fr;gap:20px;align-items:start">' +
+          '<div>' +
+            '<div style="color:#888;font-size:.75rem;margin-bottom:6px">三大法人買賣超（張）</div>' +
+            instBar('外資', f, maxInst) +
+            instBar('投信', t, maxInst) +
+            instBar('自營', d, maxInst) +
+            '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #222;font-size:.75rem;color:#888">' +
+              '合計：<span style="color:' + (total3 >= 0 ? '#ef5350' : '#4caf50') + ';font-weight:700">' +
+              (total3 >= 0 ? '+' : '') + total3.toLocaleString() + ' 張</span>' +
+              '　　量：<span style="color:#aaa">' + (stockRow.vol_lots||0).toLocaleString() + ' 張</span>' +
+            '</div>' +
+          '</div>' +
+          '<div>' +
+            '<div style="color:#888;font-size:.75rem;margin-bottom:6px">法人佔量比</div>' +
+            '<svg id="luInstSvg" width="100%" height="90" style="display:block"></svg>' +
+            peerHtml +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    setTimeout(function() {{
+      var svg = document.getElementById('luInstSvg');
+      if (svg) drawInstPie(svg, stockRow);
+    }}, 30);
+  }}
+
+  function drawInstPie(svg, r) {{
+    var W = svg.parentElement.clientWidth || 400;
+    var H = 90;
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    var vol = r.vol_lots || 1;
+    var f = r.foreign || 0, t = r.trust || 0, d = r.dealer || 0;
+    var items = [
+      {{label:'外資', val:f, color:'#42a5f5'}},
+      {{label:'投信', val:t, color:'#ab47bc'}},
+      {{label:'自營', val:d, color:'#66bb6a'}},
+    ];
+    var barH = 18, gap = 8, startY = 12;
+    var parts = [];
+    items.forEach(function(item, i) {{
+      var y = startY + i * (barH + gap);
+      var pctBuy  = item.val > 0 ? Math.min(100, item.val / vol * 100) : 0;
+      var pctSell = item.val < 0 ? Math.min(100, Math.abs(item.val) / vol * 100) : 0;
+      var maxW = W * 0.55;
+      var cx = W * 0.35;
+      parts.push('<text x="' + (cx - 4) + '" y="' + (y + 13) + '" fill="#888" font-size="10" text-anchor="end">' + item.label + '</text>');
+      parts.push('<rect x="' + cx + '" y="' + y + '" width="' + maxW + '" height="' + barH + '" fill="#1e1e2e" rx="3"/>');
+      if (pctBuy > 0) {{
+        var w = pctBuy / 100 * maxW;
+        parts.push('<rect x="' + cx + '" y="' + y + '" width="' + w + '" height="' + barH + '" fill="' + item.color + '" opacity=".8" rx="3"/>');
+        parts.push('<text x="' + (cx + w + 3) + '" y="' + (y+13) + '" fill="' + item.color + '" font-size="10">' +
+          '+' + item.val.toLocaleString() + ' (' + pctBuy.toFixed(1) + '%)</text>');
+      }} else if (pctSell > 0) {{
+        var w = pctSell / 100 * maxW;
+        parts.push('<rect x="' + (cx + maxW - w) + '" y="' + y + '" width="' + w + '" height="' + barH + '" fill="#4caf50" opacity=".8" rx="3"/>');
+        parts.push('<text x="' + (cx + maxW - w - 3) + '" y="' + (y+13) + '" fill="#4caf50" font-size="10" text-anchor="end">' +
+          item.val.toLocaleString() + ' (' + pctSell.toFixed(1) + '%)</text>');
+      }} else {{
+        parts.push('<text x="' + (cx + 4) + '" y="' + (y+13) + '" fill="#555" font-size="10">0</text>');
+      }}
+    }});
+    svg.innerHTML = parts.join('');
+  }}
+
+  function _esc(s) {{
+    return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }}
 
   luFilter();
 }})();
