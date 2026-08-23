@@ -622,11 +622,6 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       }}
     }});
     document.getElementById('luTbody').innerHTML = html;
-    document.querySelectorAll('#luTbody tr[data-code]').forEach(function(tr) {{
-      if (tr.id !== 'luDetailRow') {{
-        tr.onclick = function() {{ window.luToggleDetail(this.dataset.code); }};
-      }}
-    }});
     document.getElementById('luEntries').textContent =
       '顯示 ' + rows.length + ' 筆（共 ' + _luAll.length + ' 筆）';
 
