@@ -926,8 +926,9 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         var avg  = (b.avg||0).toFixed(2);
         var buyAvg  = (b.buy_avg  || b.avg || 0).toFixed(2);
         var sellAvg = (b.sell_avg || b.avg || 0).toFixed(2);
+        var trAttr = ' data-broker-name="' + _esc(b.name) + '" style="cursor:default"';
         if (isBuy) {{
-          return '<tr>' +
+          return '<tr' + trAttr + '>' +
             '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
             '<td class="text-end" style="color:#ef5350;font-weight:700">' + netV + '</td>' +
             '<td class="text-end" style="color:#fff">' + buyAvg + '</td>' +
@@ -936,7 +937,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
             '<td class="text-end" style="color:#fff">' + sellAvg + '</td>' +
           '</tr>';
         }} else {{
-          return '<tr>' +
+          return '<tr' + trAttr + '>' +
             '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
             '<td class="text-end" style="color:#4caf50;font-weight:700">' + netV + '</td>' +
             '<td class="text-end" style="color:#fff">' + sellAvg + '</td>' +
@@ -1057,10 +1058,77 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     setTimeout(function() {{
       var det = document.getElementById('luDetailRow');
       if (!det) return;
+
+      // peer tag 點擊
       det.addEventListener('click', function(e) {{
         var sp = e.target.closest('[data-peer-code]');
         if (!sp) return;
         luToggleDetail(sp.getAttribute('data-peer-code'));
+      }});
+
+      // Top15 表格 hover → 觸發泡泡圖同名高亮
+      function _bubbleHighlight(nm) {{
+        var svg = document.getElementById('luBubbleSvg');
+        if (!svg) return;
+        var dots = svg.querySelectorAll('circle.lub-dot');
+        var firstDot = null;
+        dots.forEach(function(d) {{ if (d.getAttribute('data-name') === nm) firstDot = firstDot || d; }});
+        if (!firstDot) return;
+        // 更新頂部資訊列
+        var bQty = Number(firstDot.getAttribute('data-buy'));
+        var sQty = Number(firstDot.getAttribute('data-sell'));
+        var bAvg = firstDot.getAttribute('data-buyavg');
+        var sAvg = firstDot.getAttribute('data-sellavg');
+        var bi = svg.querySelector('.lub-buy-info'),  bq = svg.querySelector('.lub-buy-qty'),
+            nl = svg.querySelector('.lub-name'),       si = svg.querySelector('.lub-sell-info'),
+            sq = svg.querySelector('.lub-sell-qty');
+        if (bi) bi.textContent = '買均 ' + bAvg;
+        if (bq) bq.textContent = '買量 ' + bQty.toLocaleString() + ' 張';
+        if (nl) nl.textContent = nm;
+        if (si) si.textContent = '賣均 ' + sAvg;
+        if (sq) sq.textContent = '賣量 ' + sQty.toLocaleString() + ' 張';
+        // 高亮同名泡泡
+        dots.forEach(function(d) {{
+          if (d.getAttribute('data-name') === nm) {{
+            d.setAttribute('opacity','1'); d.setAttribute('stroke-width','2'); d.setAttribute('stroke','#fff');
+          }} else {{ d.setAttribute('opacity','0.18'); }}
+        }});
+        svg.querySelectorAll('line.lub-line').forEach(function(l) {{
+          l.setAttribute('opacity', l.getAttribute('data-name') === nm ? '1' : '0.08');
+          if (l.getAttribute('data-name') === nm) l.setAttribute('stroke','#aaa');
+        }});
+        svg.querySelectorAll('text.lub-text').forEach(function(t) {{
+          t.setAttribute('fill', t.getAttribute('data-name') === nm ? '#fff' : '#222');
+        }});
+      }}
+      function _bubbleReset() {{
+        var svg = document.getElementById('luBubbleSvg');
+        if (!svg) return;
+        var bi=svg.querySelector('.lub-buy-info'), bq=svg.querySelector('.lub-buy-qty'),
+            nl=svg.querySelector('.lub-name'),      si=svg.querySelector('.lub-sell-info'),
+            sq=svg.querySelector('.lub-sell-qty');
+        if (bi) bi.textContent=''; if (bq) bq.textContent='';
+        if (nl) nl.textContent=''; if (si) si.textContent=''; if (sq) sq.textContent='';
+        svg.querySelectorAll('circle.lub-dot').forEach(function(d) {{
+          d.setAttribute('opacity','0.75'); d.setAttribute('stroke-width','0.5');
+          d.setAttribute('stroke', d.getAttribute('fill')==='#ef5350' ? '#7f1d1d' : '#2d6a4f');
+        }});
+        svg.querySelectorAll('line.lub-line').forEach(function(l) {{
+          l.setAttribute('opacity','1'); l.setAttribute('stroke','#555');
+        }});
+        svg.querySelectorAll('text.lub-text').forEach(function(t) {{ t.setAttribute('fill','#555'); }});
+      }}
+
+      det.addEventListener('mouseover', function(e) {{
+        var tr = e.target.closest('tr[data-broker-name]');
+        if (tr) _bubbleHighlight(tr.getAttribute('data-broker-name'));
+      }});
+      det.addEventListener('mouseout', function(e) {{
+        var tr = e.target.closest('tr[data-broker-name]');
+        if (!tr) return;
+        var to = e.relatedTarget;
+        if (to && to.closest && to.closest('tr[data-broker-name]') === tr) return;
+        _bubbleReset();
       }});
     }}, 50);
   }}
