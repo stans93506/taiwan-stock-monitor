@@ -149,6 +149,11 @@ def _fetch_tpex_all(date_str: str) -> list:
             timeout=20, verify=False,
         )
         data = r.json()
+        # 驗證日期（TPEx response 含 "date" 欄位如 "20260824"）
+        resp_date = str(data.get("date", "")).strip()
+        if resp_date and resp_date != date_str:
+            print(f"  [漲停] TPEx 日期不符（{resp_date} ≠ {date_str}），跳過")
+            return []
         # fields: 代號,名稱,收盤,漲跌,開盤,最高,最低,均價,成交股數,成交金額(元),...
         for table in data.get("tables", []):
             for row in table.get("data", []):
@@ -591,7 +596,8 @@ def save_limit_up_cache(date_str: str, rows: list) -> None:
             existing = json.loads(path.read_text(encoding="utf-8"))
             new_has_brokers = any(r.get("brokers") for r in rows)
             old_has_brokers = any(r.get("brokers") for r in existing)
-            if len(rows) <= len(existing) and not (new_has_brokers and not old_has_brokers):
+            # 舊資料已有分點、新資料沒有 → 保留（分點是後續補抓，不能覆蓋掉）
+            if old_has_brokers and not new_has_brokers:
                 return
         except Exception:
             pass
