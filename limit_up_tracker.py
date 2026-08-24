@@ -103,7 +103,14 @@ def get_sector_map() -> dict:
 # ── TWSE 全股行情（OpenAPI，今日） ────────────────────────────────────
 def _fetch_twse_all(date_str: str) -> list:
     """回傳上市全股行情 list[{code,name,close,change,vol_lots}]
-    TWSE OpenAPI 只提供最新交易日資料，無歷史日期參數。"""
+    優先用 OpenAPI；若日期不符（API 未更新）改用 MI_INDEX 備援。"""
+    rows = _fetch_twse_openapi(date_str)
+    if not rows:
+        rows = _fetch_twse_mi_index(date_str)
+    return rows
+
+
+def _fetch_twse_openapi(date_str: str) -> list:
     rows = []
     try:
         r = requests.get(
@@ -112,14 +119,11 @@ def _fetch_twse_all(date_str: str) -> list:
         )
         for item in r.json():
             try:
-                # 驗證日期是否符合目標（OpenAPI 僅有最新交易日）
                 data_date = str(item.get("Date", ""))
-                # data_date 為民國格式 "1150821" → 西元 "20260821"
                 if data_date:
                     yy = int(data_date[:3]) + 1911
                     target = f"{yy}{data_date[3:]}"
                     if target != date_str:
-                        # 資料日期不符，返回空（非目標交易日）
                         return []
                 close  = _parse_float(item.get("ClosingPrice", ""))
                 change = _parse_float(item.get("Change", ""))
@@ -133,6 +137,41 @@ def _fetch_twse_all(date_str: str) -> list:
                 continue
     except Exception as e:
         print(f"  [漲停] TWSE OpenAPI 失敗: {e}")
+    return rows
+
+
+def _fetch_twse_mi_index(date_str: str) -> list:
+    """備援：TWSE MI_INDEX，支援指定日期，欄位：[代號,名稱,成交股數,...,收盤價,漲跌符號,漲跌價差,...]"""
+    rows = []
+    try:
+        r = requests.get(
+            "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX",
+            params={"response": "json", "date": date_str, "type": "ALLBUT0999"},
+            headers=_H, timeout=25, verify=False,
+        )
+        data = r.json()
+        if data.get("stat") != "OK":
+            return rows
+        for table in data.get("tables", []):
+            if "每日收盤行情" not in table.get("title", ""):
+                continue
+            for row in table.get("data", []):
+                try:
+                    code  = str(row[0]).strip()
+                    name  = str(row[1]).strip()
+                    if not (code.isdigit() and len(code) == 4):
+                        continue
+                    vol   = _parse_int(row[2]) // 1000   # 成交股數 → 張
+                    close = _parse_float(row[8])          # 收盤價
+                    sign  = "+" if "color:red" in str(row[9]) else "-"
+                    diff  = _parse_float(row[10])         # 漲跌價差
+                    change = diff if sign == "+" else -diff
+                    rows.append({"code": code, "name": name,
+                                 "close": close, "change": change, "vol_lots": vol})
+                except Exception:
+                    continue
+    except Exception as e:
+        print(f"  [漲停] TWSE MI_INDEX 備援失敗: {e}")
     return rows
 
 
