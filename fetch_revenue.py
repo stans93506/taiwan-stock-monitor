@@ -8000,7 +8000,7 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         _lu_now   = _tw_now()
         _lu_date  = _lu_now.strftime("%Y%m%d")
         _lu_hhmm  = _lu_now.hour * 100 + _lu_now.minute
-        # 收盤前（14:30 以前）不抓，避免盤中不完整資料被快取
+        # 收盤前（14:30 以前）不抓今日新資料，避免盤中不完整資料被快取
         if _lu_hhmm < 1430:
             print(f"  [漲停] {_lu_hhmm//100:02d}:{_lu_hhmm%100:02d} 未到 14:30，跳過今日抓取")
             _lu_rows = []
@@ -8008,6 +8008,19 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
             _lu_rows = limit_up_tracker.fetch_limit_up(_lu_date)
             if _lu_rows:
                 limit_up_tracker.save_limit_up_cache(_lu_date, _lu_rows)
+
+        # 補抓：若最新快取缺少分點資料，重新抓（不限時間，HiStock 更新後即可補上）
+        _lu_avail_check, _lu_hist_check = limit_up_tracker.load_limit_up_history()
+        if _lu_avail_check:
+            _latest_key = _lu_avail_check[0]["key"]   # 最近一個交易日
+            _latest_rows = _lu_hist_check.get(_latest_key, [])
+            _has_brokers = any(r.get("brokers") for r in _latest_rows)
+            if _latest_rows and not _has_brokers:
+                print(f"  [漲停] {_latest_key} 缺分點資料，補抓中...")
+                _refetch = limit_up_tracker.fetch_limit_up(_latest_key)
+                if _refetch and any(r.get("brokers") for r in _refetch):
+                    limit_up_tracker.save_limit_up_cache(_latest_key, _refetch)
+                    print(f"  [漲停] {_latest_key} 分點補抓完成")
     except Exception as e:
         print(f"  ⚠ 漲停抓取失敗：{e}")
         _lu_rows = []
