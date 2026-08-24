@@ -7997,10 +7997,17 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
 
     print("\n【每日漲停追蹤】")
     try:
-        _lu_date = _tw_now().strftime("%Y%m%d")
-        _lu_rows = limit_up_tracker.fetch_limit_up(_lu_date)
-        if _lu_rows:
-            limit_up_tracker.save_limit_up_cache(_lu_date, _lu_rows)
+        _lu_now   = _tw_now()
+        _lu_date  = _lu_now.strftime("%Y%m%d")
+        _lu_hhmm  = _lu_now.hour * 100 + _lu_now.minute
+        # 收盤前（14:30 以前）不抓，避免盤中不完整資料被快取
+        if _lu_hhmm < 1430:
+            print(f"  [漲停] {_lu_hhmm//100:02d}:{_lu_hhmm%100:02d} 未到 14:30，跳過今日抓取")
+            _lu_rows = []
+        else:
+            _lu_rows = limit_up_tracker.fetch_limit_up(_lu_date)
+            if _lu_rows:
+                limit_up_tracker.save_limit_up_cache(_lu_date, _lu_rows)
     except Exception as e:
         print(f"  ⚠ 漲停抓取失敗：{e}")
         _lu_rows = []
