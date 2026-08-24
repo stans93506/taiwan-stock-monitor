@@ -387,98 +387,105 @@ def _histock_login(page) -> bool:
         return "login" not in page.url and "auth." not in page.url
 
 
-def _fetch_mainprofit_html(code: str) -> str:
-    """用 Playwright 自動登入後取得 mainprofit.aspx 的完整渲染 HTML。"""
+_MP_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+_MP_ARGS = ["--disable-blink-features=AutomationControlled",
+            "--no-sandbox", "--disable-dev-shm-usage"]
+
+
+def _mainprofit_page_html(page, code: str) -> str:
+    """用已登入的 page 抓取單支股票的 mainprofit HTML。"""
+    import time as _time
+    url = f"https://histock.tw/stock/mainprofit.aspx?no={code}"
+    for attempt in range(6):
+        try:
+            page.goto(url, wait_until="load", timeout=30_000)
+            break
+        except Exception as e:
+            if "interrupted by another navigation" in str(e):
+                _time.sleep(2)
+            else:
+                raise
+    try:
+        page.wait_for_selector("#Buy tr:nth-child(2)", timeout=15_000)
+    except Exception:
+        pass
+    return page.content()
+
+
+def fetch_all_mainprofit_avgs(codes: list) -> dict:
+    """
+    登入一次，批量抓取所有股票的均買/均賣。
+    回傳 {code: {broker_name: (buy_avg, sell_avg)}}
+    """
     import time as _time
     from playwright.sync_api import sync_playwright
-    email, password = _histock_creds()
-    if not email:
-        return ""
+    results = {c: {} for c in codes}
+    if not codes or not _histock_creds()[0]:
+        return results
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled",
-                  "--no-sandbox", "--disable-dev-shm-usage"],
-        )
-        ctx = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/124.0.0.0 Safari/537.36"
-        )
+        browser = p.chromium.launch(headless=False, args=_MP_ARGS)
+        ctx = browser.new_context(user_agent=_MP_UA)
         try:
             page = ctx.new_page()
             if not _histock_login(page):
-                print(f"  [主力] HiStock 登入失敗")
-                return ""
-            url = f"https://histock.tw/stock/mainprofit.aspx?no={code}"
-            for attempt in range(6):
+                print("  [主力] HiStock 登入失敗")
+                return results
+            print(f"  [主力] 登入成功，開始抓取 {len(codes)} 檔...")
+            for i, code in enumerate(codes, 1):
                 try:
-                    page.goto(url, wait_until="load", timeout=30_000)
-                    break
+                    html = _mainprofit_page_html(page, code)
+                    results[code] = _parse_mainprofit_html(html)
+                    print(f"  [主力] [{i}/{len(codes)}] {code}: {len(results[code])} 筆")
                 except Exception as e:
-                    if "interrupted by another navigation" in str(e):
-                        print(f"  [主力] redirect 干擾，重試 ({attempt+1}/6)...")
-                        _time.sleep(2)
-                    else:
-                        raise
-            try:
-                page.wait_for_selector("#Buy tr:nth-child(2)", timeout=15_000)
-            except Exception:
-                pass
-            html = page.content()
+                    print(f"  [主力] [{i}/{len(codes)}] {code}: {e}")
+                _time.sleep(1)
         finally:
             ctx.close()
             browser.close()
-    return html
+    return results
+
+
+def _parse_mainprofit_html(html: str) -> dict:
+    """從 mainprofit HTML 解析 {broker_name: (buy_avg, sell_avg)}。"""
+    result: dict = {}
+    tables = re.findall(r'<table[^>]*class="[^"]*tb-stock[^"]*"[^>]*>.*?</table>', html, re.DOTALL)
+    if not tables:
+        return result
+
+    def _cell(s):
+        return re.sub(r'<[^>]+>', '', s).strip().replace(',', '')
+
+    buy_avgs: dict = {}
+    sell_avgs: dict = {}
+    for table_html in tables:
+        is_sell = 'id="CPHB1_chipAnalysis1_gSell"' in table_html
+        all_rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL)
+        for row_html in all_rows[1:]:
+            cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+            if len(cells) < 12:
+                continue
+            name = _cell(cells[1])
+            if not name:
+                continue
+            buy_avg  = _parse_float(_cell(cells[10]))
+            sell_avg = _parse_float(_cell(cells[11]))
+            if is_sell:
+                sell_avgs[name] = (buy_avg, sell_avg)
+            else:
+                buy_avgs[name] = (buy_avg, sell_avg)
+
+    all_names = set(buy_avgs) | set(sell_avgs)
+    for name in all_names:
+        b = buy_avgs.get(name, (None, None))
+        s = sell_avgs.get(name, (None, None))
+        result[name] = (b[0] or s[0], s[1] or b[1])
+    return result
 
 
 def _fetch_mainprofit_avgs(code: str) -> dict:
-    """
-    從 HiStock 主力進出頁面抓取分開的均買 / 均賣（需登入，使用持久化 Playwright session）。
-    欄位順序: ★, 券商分點, 績效, 總損益, 已實現, 未實現, 買賣超, 買張, 賣張, 均價, 均買, 均賣, 現價
-    回傳 {broker_name: (buy_avg, sell_avg)}
-    """
-    result: dict = {}
-    try:
-        html = _fetch_mainprofit_html(code)
-        if not html:
-            return result
-        tables = re.findall(r'<table[^>]*class="[^"]*tb-stock[^"]*"[^>]*>.*?</table>', html, re.DOTALL)
-        if not tables:
-            return result
-
-        def _cell(s):
-            return re.sub(r'<[^>]+>', '', s).strip().replace(',', '')
-
-        # gBuy 存 buy_avg；gSell 存 sell_avg；先用 dict 彙整
-        buy_avgs: dict = {}
-        sell_avgs: dict = {}
-        for table_html in tables:
-            is_sell = 'id="CPHB1_chipAnalysis1_gSell"' in table_html
-            all_rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL)
-            for row_html in all_rows[1:]:
-                cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
-                if len(cells) < 12:
-                    continue
-                name = _cell(cells[1])   # 券商分點
-                if not name:
-                    continue
-                buy_avg  = _parse_float(_cell(cells[10]))  # 均買
-                sell_avg = _parse_float(_cell(cells[11]))  # 均賣
-                if is_sell:
-                    sell_avgs[name] = (buy_avg, sell_avg)
-                else:
-                    buy_avgs[name] = (buy_avg, sell_avg)
-
-        # 合併：同券商可能同時出現在兩張表
-        all_names = set(buy_avgs) | set(sell_avgs)
-        for name in all_names:
-            b = buy_avgs.get(name, (None, None))
-            s = sell_avgs.get(name, (None, None))
-            result[name] = (b[0] or s[0], s[1] or b[1])
-    except Exception as e:
-        print(f"  [主力] {code}: {e}")
-    return result
+    """單支股票版本（供測試用），內部用 fetch_all_mainprofit_avgs。"""
+    return fetch_all_mainprofit_avgs([code]).get(code, {})
 
 
 # ── 主抓取函式 ────────────────────────────────────────────────────────
@@ -553,19 +560,10 @@ def fetch_limit_up(date_str: str = None) -> list:
         ok = sum(1 for r in result if r.get("brokers"))
         print(f"  [分點] {ok}/{len(result)} 檔有分點資料")
 
-        # 抓取 mainprofit 均買/均賣（並行）
+        # 抓取 mainprofit 均買/均賣（登入一次，循序抓取）
         codes_with_brokers = [r["code"] for r in result if r.get("brokers")]
         if codes_with_brokers:
-            print(f"  [主力] 抓取 {len(codes_with_brokers)} 檔均買/均賣...")
-            mp_map: dict = {}
-            with ThreadPoolExecutor(max_workers=4) as ex:
-                futs2 = {ex.submit(_fetch_mainprofit_avgs, c): c for c in codes_with_brokers}
-                for fut in as_completed(futs2):
-                    c = futs2[fut]
-                    try:
-                        mp_map[c] = fut.result()
-                    except Exception:
-                        mp_map[c] = {}
+            mp_map = fetch_all_mainprofit_avgs(codes_with_brokers)
             for row in result:
                 mp = mp_map.get(row["code"], {})
                 for b in row.get("brokers", []):
@@ -690,6 +688,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       placeholder="搜尋代號/名稱/族群" oninput="luFilter()">
     <span id="luEntries" class="text-muted" style="font-size:.8rem"></span>
   </div>
+  <div id="luSectorTags" style="padding:4px 10px 6px;display:flex;flex-wrap:wrap;gap:4px;border-top:1px solid #222"></div>
 </div>
 <div style="overflow-x:auto">
 <table class="table table-dark table-hover table-sm mb-0" style="font-size:.85rem">
@@ -712,19 +711,49 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
 <div style="font-size:.78rem;color:var(--muted)" class="p-2">
   資料來源：TWSE / TPEx 官方 API。法人單位：張。族群：官方產業分類。
 </div>
+<style>.lu-peer-tag{{cursor:pointer;background:#1e1e2e;border:1px solid #333;border-radius:4px;padding:2px 7px;font-size:.75rem;transition:border-color .15s}}.lu-peer-tag:hover{{border-color:#4fc3f7}}</style>
 <script>
 (function(){{
   var _LU_HIST   = {history_json};
   var _luAll     = {init_rows_json};
   var _luSortKey = 'vol_lots';
   var _luSortAsc = false;
+  var _luSectorFilter = null;
+
+  function renderSectorTags() {{
+    var el = document.getElementById('luSectorTags');
+    if (!el) return;
+    var counts = {{}};
+    _luAll.forEach(function(r) {{ var s = r.sector || '其他'; counts[s] = (counts[s]||0)+1; }});
+    var sectors = Object.keys(counts).sort(function(a,b){{ return counts[b]-counts[a]; }});
+    if (!sectors.length) {{ el.innerHTML = ''; return; }}
+    el.innerHTML = sectors.map(function(s) {{
+      var active = _luSectorFilter === s;
+      var safeS = s.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+      return '<span data-sector="' + safeS + '" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:10px;border:1px solid ' +
+        (active ? '#f97316' : '#3a3a4e') + ';background:' + (active ? '#7c2d12' : '#1a1a2e') +
+        ';color:' + (active ? '#fb923c' : '#aaa') + ';font-size:.78rem">' +
+        s + ' <span style="background:#333;color:#ccc;border-radius:8px;padding:0 5px;font-size:.72rem">' + counts[s] + '</span></span>';
+    }}).join('');
+  }}
+
+  document.getElementById('luSectorTags').addEventListener('click', function(e) {{
+    var sp = e.target.closest('[data-sector]');
+    if (!sp) return;
+    var sec = sp.getAttribute('data-sector');
+    _luSectorFilter = (_luSectorFilter === sec) ? null : sec;
+    renderSectorTags();
+    luFilter();
+  }});
 
   window.luSelectDate = function(key) {{
     _luAll = _LU_HIST[key] || [];
+    _luSectorFilter = null;
     document.getElementById('luCount').textContent =
       _luAll.length ? _luAll.length + ' 檔' : '今日無資料';
     var det = document.getElementById('luDetailRow');
     if (det) det.remove();
+    renderSectorTags();
     luFilter();
   }};
 
@@ -760,9 +789,11 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
 
   window.luFilter = function() {{
     var q = (document.getElementById('luSearch').value || '').toLowerCase();
-    var rows = q ? _luAll.filter(function(r) {{
-      return ((r.code||'')+(r.name||'')+(r.sector||'')).toLowerCase().indexOf(q) >= 0;
-    }}) : _luAll.slice();
+    var rows = _luAll.filter(function(r) {{
+      var matchQ = !q || ((r.code||'')+(r.name||'')+(r.sector||'')).toLowerCase().indexOf(q) >= 0;
+      var matchS = !_luSectorFilter || (r.sector||'其他') === _luSectorFilter;
+      return matchQ && matchS;
+    }});
 
     rows.sort(function(a, b) {{
       var av = a[_luSortKey], bv = b[_luSortKey];
@@ -854,19 +885,19 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
           return '<tr>' +
             '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
             '<td class="text-end" style="color:#ef5350;font-weight:700">' + netV + '</td>' +
-            '<td class="text-end" style="color:#ef5350">' + buyAvg + '</td>' +
+            '<td class="text-end" style="color:#fff">' + buyAvg + '</td>' +
             '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
             '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
-            '<td class="text-end" style="color:#4caf50">' + sellAvg + '</td>' +
+            '<td class="text-end" style="color:#fff">' + sellAvg + '</td>' +
           '</tr>';
         }} else {{
           return '<tr>' +
             '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
             '<td class="text-end" style="color:#4caf50;font-weight:700">' + netV + '</td>' +
-            '<td class="text-end" style="color:#4caf50">' + sellAvg + '</td>' +
+            '<td class="text-end" style="color:#fff">' + sellAvg + '</td>' +
             '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
             '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
-            '<td class="text-end" style="color:#ef5350">' + buyAvg + '</td>' +
+            '<td class="text-end" style="color:#fff">' + buyAvg + '</td>' +
           '</tr>';
         }}
       }}).join('');
@@ -874,11 +905,11 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         return '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
           '<thead><tr>' +
             '<th>券商</th>' +
-            '<th class="text-end" style="color:#ef5350">買超</th>' +
-            '<th class="text-end" style="color:#aaa">買均</th>' +
-            '<th class="text-end" style="color:#ef5350">買張</th>' +
-            '<th class="text-end" style="color:#4caf50">賣張</th>' +
-            '<th class="text-end" style="color:#aaa">賣均</th>' +
+            '<th class="text-end" style="color:#fff">買超</th>' +
+            '<th class="text-end" style="color:#fff">買均</th>' +
+            '<th class="text-end" style="color:#fff">買張</th>' +
+            '<th class="text-end" style="color:#fff">賣張</th>' +
+            '<th class="text-end" style="color:#fff">賣均</th>' +
           '</tr></thead>' +
           '<tbody>' + rows + '</tbody>' +
           '</table>';
@@ -886,11 +917,11 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         return '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
           '<thead><tr>' +
             '<th>券商</th>' +
-            '<th class="text-end" style="color:#4caf50">賣超</th>' +
-            '<th class="text-end" style="color:#aaa">賣均</th>' +
-            '<th class="text-end" style="color:#4caf50">賣張</th>' +
-            '<th class="text-end" style="color:#ef5350">買張</th>' +
-            '<th class="text-end" style="color:#aaa">買均</th>' +
+            '<th class="text-end" style="color:#fff">賣超</th>' +
+            '<th class="text-end" style="color:#fff">賣均</th>' +
+            '<th class="text-end" style="color:#fff">賣張</th>' +
+            '<th class="text-end" style="color:#fff">買張</th>' +
+            '<th class="text-end" style="color:#fff">買均</th>' +
           '</tr></thead>' +
           '<tbody>' + rows + '</tbody>' +
           '</table>';
@@ -920,7 +951,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         '<div style="color:#888;font-size:.72rem;margin-bottom:3px">同族群漲停（' + _esc(sector) + '）</div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:5px">' +
         peers.map(function(p) {{
-          return '<span style="background:#1e1e2e;border:1px solid #333;border-radius:4px;padding:2px 7px;font-size:.75rem">' +
+          return '<span data-peer-code="' + p.code + '" class="lu-peer-tag">' +
             '<span style="color:#4fc3f7">' + p.code + '</span> ' + _esc(p.name) +
             ' <span style="color:#aaa">' + p.close.toFixed(2) + '</span></span>';
         }}).join('') +
@@ -928,19 +959,19 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     }}
 
     var brokerSection = hasBrokers
-      ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">' +
+      ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:10px;border:1px solid #333;border-radius:4px;overflow:hidden">' +
           '<div>' +
-            '<div style="color:#ef5350;font-size:.75rem;margin-bottom:4px">▲ 買超分點 Top' + buyers.length + '</div>' +
+            '<div style="background:#1a0a0a;color:#ef5350;font-size:.82rem;font-weight:700;padding:5px 8px;border-bottom:2px solid #ef5350;border-right:1px solid #333">▲ 買超分點 Top' + buyers.length + '</div>' +
             brokerTable(buyers, 'buy') +
           '</div>' +
           '<div>' +
-            '<div style="color:#4caf50;font-size:.75rem;margin-bottom:4px">▼ 賣超分點 Top' + sellers.length + '</div>' +
+            '<div style="background:#0a1a0a;color:#4caf50;font-size:.82rem;font-weight:700;padding:5px 8px;border-bottom:2px solid #4caf50">▼ 賣超分點 Top' + sellers.length + '</div>' +
             brokerTable(sellers, 'sell') +
           '</div>' +
         '</div>' +
         '<div style="margin-top:8px">' +
           '<div style="color:#888;font-size:.72rem;margin-bottom:4px">券商分點泡泡圖（X=買賣量　Y=均價，移至圓圈可查看明細）</div>' +
-          '<svg id="luBubbleSvg" width="100%" height="240" style="display:block"></svg>' +
+          '<svg id="luBubbleSvg" width="100%" height="340" style="display:block"></svg>' +
         '</div>' +
         '<div id="luDaytradeTbl" style="margin-top:10px"></div>'
       : '<div style="color:#666;font-size:.78rem;margin-top:6px">（分點資料未取得）</div>';
@@ -977,14 +1008,25 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
         if (svg) drawBrokerBubbles(svg, brokers, stockRow.close);
       }}, 30);
     }}
+
+    setTimeout(function() {{
+      var det = document.getElementById('luDetailRow');
+      if (!det) return;
+      det.addEventListener('click', function(e) {{
+        var sp = e.target.closest('[data-peer-code]');
+        if (!sp) return;
+        luToggleDetail(sp.getAttribute('data-peer-code'));
+      }});
+    }}, 50);
   }}
 
   function drawBrokerBubbles(svgEl, brokers, limitPrice) {{
     var W = svgEl.parentElement.clientWidth || 600;
     if (W < 200) W = 600;
-    var H = 240;
+    var H = 340;
+    svgEl.setAttribute('height', H);
     svgEl.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
-    var PAD_L = 44, PAD_R = 10, PAD_T = 14, PAD_B = 22;
+    var PAD_L = 44, PAD_R = 10, PAD_T = 50, PAD_B = 34;
     var cW = W - PAD_L - PAD_R;
     var cH = H - PAD_T - PAD_B;
     var midX = PAD_L + cW / 2;
@@ -994,25 +1036,68 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       maxVol = Math.max(maxVol, b.buy || 0, b.sell || 0);
     }});
 
-    var prices = brokers.map(function(b){{ return b.avg; }}).filter(function(p){{ return p > 0; }});
+    var prices = [];
+    brokers.forEach(function(b) {{
+      if ((b.buy_avg  || 0) > 0) prices.push(b.buy_avg);
+      if ((b.sell_avg || 0) > 0) prices.push(b.sell_avg);
+      if ((b.avg      || 0) > 0) prices.push(b.avg);
+    }});
     if (!prices.length) {{ svgEl.style.display='none'; return; }}
     prices.push(limitPrice);
-    var minP = Math.min.apply(null, prices) - 0.05;
-    var maxP = Math.max.apply(null, prices) + 0.05;
+    var minP = Math.min.apply(null, prices) - 0.1;
+    var maxP = Math.max.apply(null, prices) + 0.1;
     var pRange = maxP - minP || 1;
 
+    // 根據 maxVol 動態選刻度組合（從小到大，第一個蓋得住就選）
+    var _scales = [
+      [0, 5, 10, 25],
+      [0, 5, 10, 25, 50],
+      [0, 5, 10, 25, 50, 100],
+      [0, 10, 25, 50, 100, 200],
+      [0, 10, 25, 50, 100, 200, 500],
+      [0, 10, 25, 100, 200, 500, 1000, 2000],
+      [0, 25, 100, 500, 1000, 2000, 5000],
+      [0, 25, 100, 500, 1000, 2000, 5000, 10000],
+    ];
+    var xBreaks = _scales[_scales.length - 1];
+    for (var _si = 0; _si < _scales.length; _si++) {{
+      var _maxTick = _scales[_si][_scales[_si].length - 1];
+      if (_maxTick >= maxVol) {{ xBreaks = _scales[_si]; break; }}
+    }}
+    function volToFrac(vol) {{
+      if (vol <= 0) return 0;
+      for (var i = 1; i < xBreaks.length; i++) {{
+        if (vol <= xBreaks[i]) {{
+          var lo = xBreaks[i-1], hi = xBreaks[i];
+          var segFrac = (i - 1) / (xBreaks.length - 1);
+          var segLen  = 1 / (xBreaks.length - 1);
+          return segFrac + segLen * (vol - lo) / (hi - lo);
+        }}
+      }}
+      return 1;
+    }}
     function xVol(vol, isSell) {{
+      if (vol <= 0) return midX;
       var halfW = cW * 0.44;
-      return isSell ? (midX + vol / maxVol * halfW) : (midX - vol / maxVol * halfW);
+      var frac = Math.min(1, volToFrac(vol));
+      return isSell ? (midX + frac * halfW) : (midX - frac * halfW);
     }}
     function yP(price) {{
       return PAD_T + cH - (price - minP) / pRange * cH;
     }}
     function rV(vol) {{
-      return Math.max(3, Math.min(16, Math.sqrt(vol / maxVol) * 16));
+      return Math.max(5, Math.min(30, Math.sqrt(vol / maxVol) * 30));
     }}
 
     var parts = [];
+
+    // 頂部 hover 資訊列（初始空白，hover 時填入）
+    parts.push('<rect x="0" y="0" width="' + W + '" height="40" fill="#0d0d1a" rx="0"/>');
+    parts.push('<text class="lub-buy-info" x="' + (PAD_L+4) + '" y="16" fill="#ef5350" font-size="13" font-weight="bold"></text>');
+    parts.push('<text class="lub-buy-qty"  x="' + (PAD_L+4) + '" y="34" fill="#f87171" font-size="12"></text>');
+    parts.push('<text class="lub-name"     x="' + midX + '" y="26" fill="#f9a825" font-size="14" font-weight="bold" text-anchor="middle"></text>');
+    parts.push('<text class="lub-sell-info" x="' + (W-PAD_R-4) + '" y="16" fill="#4caf50" font-size="13" font-weight="bold" text-anchor="end"></text>');
+    parts.push('<text class="lub-sell-qty"  x="' + (W-PAD_R-4) + '" y="34" fill="#81c995" font-size="12" text-anchor="end"></text>');
 
     // Grid lines + Y-axis price labels
     for (var ti = 0; ti <= 4; ti++) {{
@@ -1020,96 +1105,153 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
       var ty = yP(tp);
       parts.push('<line x1="' + PAD_L + '" y1="' + ty + '" x2="' + (W-PAD_R) + '" y2="' + ty +
         '" stroke="#1e1e2e" stroke-width="1"/>');
-      parts.push('<text x="' + (PAD_L-3) + '" y="' + (ty+4) + '" fill="#555" font-size="9" text-anchor="end">' +
+      parts.push('<text x="' + (PAD_L-3) + '" y="' + (ty+4) + '" fill="#666" font-size="11" text-anchor="end">' +
         tp.toFixed(2) + '</text>');
     }}
+
+    // 平盤（參考價）≈ 漲停 / 1.1
+    var refPrice = Math.round(limitPrice / 1.1 * 100) / 100;
+    var yRef = yP(refPrice);
+    parts.push('<line x1="' + PAD_L + '" y1="' + yRef + '" x2="' + (W-PAD_R) + '" y2="' + yRef +
+      '" stroke="#888" stroke-width="1" stroke-dasharray="6,4" opacity=".45"/>');
+    parts.push('<text x="' + (PAD_L+3) + '" y="' + (yRef-3) + '" fill="#888" font-size="10" text-anchor="start">平盤' + refPrice.toFixed(2) + '</text>');
 
     // 漲停價 horizontal line
     var yLim = yP(limitPrice);
     parts.push('<line x1="' + PAD_L + '" y1="' + yLim + '" x2="' + (W-PAD_R) + '" y2="' + yLim +
       '" stroke="#ef5350" stroke-width="1" stroke-dasharray="4,3" opacity=".5"/>');
-    parts.push('<text x="' + (PAD_L+3) + '" y="' + (yLim-3) + '" fill="#ef5350" font-size="8">漲停' +
+    parts.push('<text x="' + (PAD_L+3) + '" y="' + (yLim-3) + '" fill="#ef5350" font-size="11" font-weight="bold" text-anchor="start">漲停' +
       limitPrice.toFixed(2) + '</text>');
 
     // Center axis
     parts.push('<line x1="' + midX + '" y1="' + PAD_T + '" x2="' + midX + '" y2="' + (H-PAD_B) +
       '" stroke="#444" stroke-width="1"/>');
 
-    // X-axis label
-    parts.push('<text x="' + (midX - cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">←買進</text>');
-    parts.push('<text x="' + (midX + cW*0.22) + '" y="' + (H-5) + '" fill="#555" font-size="9" text-anchor="middle">賣出→</text>');
+    // X 軸分段刻度標示 + 垂直格線
+    var xTickVals = xBreaks.slice(1);
+    var yTickBase = H - PAD_B;
+    xTickVals.forEach(function(tv) {{
+      if (tv > maxVol * 1.1) return;
+      var xB = xVol(tv, false);
+      var xS = xVol(tv, true);
+      [xB, xS].forEach(function(xx) {{
+        // 垂直格線
+        parts.push('<line x1="' + xx + '" y1="' + PAD_T + '" x2="' + xx + '" y2="' + yTickBase +
+          '" stroke="#2a2a3a" stroke-width="1"/>');
+        // 刻度小線
+        parts.push('<line x1="' + xx + '" y1="' + yTickBase + '" x2="' + xx + '" y2="' + (yTickBase+4) +
+          '" stroke="#444" stroke-width="1"/>');
+        parts.push('<text x="' + xx + '" y="' + (yTickBase+14) + '" fill="#666" font-size="10" text-anchor="middle">' + tv + '</text>');
+      }});
+    }});
 
     // Draw connecting lines first (under circles)
     brokers.forEach(function(b) {{
-      if (!b.avg || b.avg <= 0) return;
-      var yy = yP(b.avg);
+      var ySell = yP(b.sell_avg || b.avg || 0);
+      var yBuy  = yP(b.buy_avg  || b.avg || 0);
       var xS = xVol(b.sell||0, true);
       var xB = xVol(b.buy||0, false);
-      if ((b.sell||0) > 0 && (b.buy||0) > 0) {{
-        parts.push('<line x1="' + xS + '" y1="' + yy + '" x2="' + xB + '" y2="' + yy +
+      if ((b.sell||0) > 0 && (b.buy||0) > 0 && (b.sell_avg||b.avg||0) > 0 && (b.buy_avg||b.avg||0) > 0) {{
+        parts.push('<line class="lub-line" data-name="' + _esc(b.name) + '" x1="' + xS + '" y1="' + ySell + '" x2="' + xB + '" y2="' + yBuy +
           '" stroke="#555" stroke-width="1" stroke-dasharray="3,2"/>');
       }}
     }});
 
     // Draw circles + labels
-    var threshold = maxVol * 0.08;
+    var threshold = maxVol * 0.06;
     brokers.forEach(function(b) {{
-      if (!b.avg || b.avg <= 0) return;
-      var yy = yP(b.avg);
       var shortName = b.name.replace(/.*?-/, '').slice(0, 5) || b.name.slice(0, 5);
+      var buyAvg  = (b.buy_avg  || b.avg || 0).toFixed(2);
+      var sellAvg = (b.sell_avg || b.avg || 0).toFixed(2);
+      var ySell = yP(b.sell_avg || b.avg || 0);
+      var yBuy  = yP(b.buy_avg  || b.avg || 0);
 
-      if ((b.sell||0) > 0) {{
+      if ((b.sell||0) > 0 && (b.sell_avg||b.avg||0) > 0) {{
         var xS = xVol(b.sell, true);
         var rS = rV(b.sell);
-        parts.push('<circle cx="' + xS + '" cy="' + yy + '" r="' + rS +
+        parts.push('<circle cx="' + xS + '" cy="' + ySell + '" r="' + rS +
           '" fill="#4caf50" opacity=".75" stroke="#2d6a4f" stroke-width=".5"' +
-          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) +
-          '" data-buyavg="' + (b.buy_avg||b.avg||0).toFixed(2) + '" data-sellavg="' + (b.sell_avg||b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
+          ' class="lub-dot" data-name="' + _esc(b.name) +
+          '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) +
+          '" data-buyavg="' + buyAvg + '" data-sellavg="' + sellAvg + '" style="cursor:pointer"/>');
         if (b.sell >= threshold || b.side === 'sell') {{
-          parts.push('<text x="' + (xS - rS - 2) + '" y="' + (yy+3) + '" fill="#81c995" font-size="8" text-anchor="end">' +
+          parts.push('<text x="' + (xS - rS - 3) + '" y="' + (ySell+4) + '" fill="#555" font-size="10" text-anchor="end" pointer-events="none" class="lub-text" data-name="' + _esc(b.name) + '">' +
             _esc(shortName) + '</text>');
+          parts.push('<text x="' + (xS - rS - 3) + '" y="' + (ySell+15) + '" fill="#555" font-size="9" text-anchor="end" pointer-events="none" class="lub-text" data-name="' + _esc(b.name) + '">' +
+            (b.sell||0) + '張</text>');
         }}
       }}
-      if ((b.buy||0) > 0) {{
+      if ((b.buy||0) > 0 && (b.buy_avg||b.avg||0) > 0) {{
         var xB = xVol(b.buy, false);
         var rB = rV(b.buy);
-        parts.push('<circle cx="' + xB + '" cy="' + yy + '" r="' + rB +
+        parts.push('<circle cx="' + xB + '" cy="' + yBuy + '" r="' + rB +
           '" fill="#ef5350" opacity=".75" stroke="#7f1d1d" stroke-width=".5"' +
-          ' data-name="' + _esc(b.name) + '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) +
-          '" data-buyavg="' + (b.buy_avg||b.avg||0).toFixed(2) + '" data-sellavg="' + (b.sell_avg||b.avg||0).toFixed(2) + '" style="cursor:pointer"/>');
+          ' class="lub-dot" data-name="' + _esc(b.name) +
+          '" data-buy="' + (b.buy||0) + '" data-sell="' + (b.sell||0) +
+          '" data-buyavg="' + buyAvg + '" data-sellavg="' + sellAvg + '" style="cursor:pointer"/>');
         if (b.buy >= threshold || b.side === 'buy') {{
-          parts.push('<text x="' + (xB + rB + 2) + '" y="' + (yy+3) + '" fill="#f87171" font-size="8">' +
+          parts.push('<text x="' + (xB + rB + 3) + '" y="' + (yBuy+4) + '" fill="#555" font-size="10" pointer-events="none" class="lub-text" data-name="' + _esc(b.name) + '">' +
             _esc(shortName) + '</text>');
+          parts.push('<text x="' + (xB + rB + 3) + '" y="' + (yBuy+15) + '" fill="#555" font-size="9" pointer-events="none" class="lub-text" data-name="' + _esc(b.name) + '">' +
+            (b.buy||0) + '張</text>');
         }}
       }}
     }});
 
     svgEl.innerHTML = parts.join('');
 
-    // Hover tooltip
-    var tipEl = document.getElementById('luBubbleTip');
-    if (!tipEl) {{
-      tipEl = document.createElement('div');
-      tipEl.id = 'luBubbleTip';
-      tipEl.style.cssText = 'position:fixed;background:#1a1a2e;border:1px solid #555;color:#eee;padding:7px 12px;border-radius:6px;font-size:.78rem;pointer-events:none;display:none;z-index:9999;line-height:1.9;box-shadow:0 2px 10px rgba(0,0,0,.5)';
-      document.body.appendChild(tipEl);
-    }}
-    svgEl.querySelectorAll('circle[data-name]').forEach(function(c) {{
+    // Hover：高亮同券商買賣兩點 + 頂部資訊列
+    svgEl.querySelectorAll('circle.lub-dot').forEach(function(c) {{
       c.addEventListener('mouseenter', function() {{
-        tipEl.innerHTML =
-          '<b style="color:#f9a825">' + c.getAttribute('data-name') + '</b><br>' +
-          '買量 <span style="color:#ef5350;font-weight:700">' + Number(c.getAttribute('data-buy')).toLocaleString() + '</span> 張　' +
-          '買均 <span style="color:#ef5350">' + c.getAttribute('data-buyavg') + '</span><br>' +
-          '賣量 <span style="color:#4caf50;font-weight:700">' + Number(c.getAttribute('data-sell')).toLocaleString() + '</span> 張　' +
-          '賣均 <span style="color:#4caf50">' + c.getAttribute('data-sellavg') + '</span>';
-        tipEl.style.display = 'block';
-      }});
-      c.addEventListener('mousemove', function(e) {{
-        tipEl.style.left = (e.clientX + 14) + 'px';
-        tipEl.style.top  = (e.clientY + 14) + 'px';
+        var nm   = c.getAttribute('data-name');
+        var bQty = Number(c.getAttribute('data-buy'));
+        var sQty = Number(c.getAttribute('data-sell'));
+        var bAvg = c.getAttribute('data-buyavg');
+        var sAvg = c.getAttribute('data-sellavg');
+
+        // 更新頂部資訊
+        svgEl.querySelector('.lub-buy-info').textContent  = '買均 ' + bAvg;
+        svgEl.querySelector('.lub-buy-qty').textContent   = '買量 ' + bQty.toLocaleString() + ' 張';
+        svgEl.querySelector('.lub-name').textContent      = nm;
+        svgEl.querySelector('.lub-sell-info').textContent = '賣均 ' + sAvg;
+        svgEl.querySelector('.lub-sell-qty').textContent  = '賣量 ' + sQty.toLocaleString() + ' 張';
+
+        // 同名泡泡高亮，其他淡化
+        svgEl.querySelectorAll('circle.lub-dot').forEach(function(d) {{
+          if (d.getAttribute('data-name') === nm) {{
+            d.setAttribute('opacity', '1');
+            d.setAttribute('stroke-width', '2');
+            d.setAttribute('stroke', '#fff');
+          }} else {{
+            d.setAttribute('opacity', '0.18');
+          }}
+        }});
+        svgEl.querySelectorAll('line.lub-line').forEach(function(l) {{
+          l.setAttribute('opacity', l.getAttribute('data-name') === nm ? '1' : '0.08');
+          if (l.getAttribute('data-name') === nm) l.setAttribute('stroke', '#aaa');
+        }});
+        svgEl.querySelectorAll('text.lub-text').forEach(function(t) {{
+          t.setAttribute('fill', t.getAttribute('data-name') === nm ? '#fff' : '#222');
+        }});
       }});
       c.addEventListener('mouseleave', function() {{
-        tipEl.style.display = 'none';
+        svgEl.querySelector('.lub-buy-info').textContent  = '';
+        svgEl.querySelector('.lub-buy-qty').textContent   = '';
+        svgEl.querySelector('.lub-name').textContent      = '';
+        svgEl.querySelector('.lub-sell-info').textContent = '';
+        svgEl.querySelector('.lub-sell-qty').textContent  = '';
+        svgEl.querySelectorAll('circle.lub-dot').forEach(function(d) {{
+          d.setAttribute('opacity', '0.75');
+          d.setAttribute('stroke-width', '0.5');
+          d.setAttribute('stroke', d.getAttribute('fill') === '#ef5350' ? '#7f1d1d' : '#2d6a4f');
+        }});
+        svgEl.querySelectorAll('line.lub-line').forEach(function(l) {{
+          l.setAttribute('opacity', '1');
+          l.setAttribute('stroke', '#555');
+        }});
+        svgEl.querySelectorAll('text.lub-text').forEach(function(t) {{
+          t.setAttribute('fill', '#555');
+        }});
       }});
     }});
 
@@ -1121,25 +1263,57 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     var dtEl = document.getElementById('luDaytradeTbl');
     if (dtEl && top10.length > 0) {{
       var dtRows = top10.map(function(b, i) {{
+        var bAvg    = (b.buy_avg  || b.avg || 0);
+        var sAvg    = (b.sell_avg || b.avg || 0);
+        var buyVol  = b.buy  || 0;
+        var sellVol = b.sell || 0;
+        var dtVol   = b._dt; // min(buy,sell)
+        var close   = limitPrice;
+
+        // 已沖銷 = (賣均 - 買均) × 配對張數 × 1000股
+        var matched = (sAvg - bAvg) * dtVol * 1000;
+
+        // 未沖銷 = 剩餘部位以收盤價結算
+        var remainBuy  = Math.max(0, buyVol  - sellVol);
+        var remainSell = Math.max(0, sellVol - buyVol);
+        var unmatched  = remainBuy  > 0 ? (close - bAvg) * remainBuy  * 1000
+                       : remainSell > 0 ? (sAvg  - close) * remainSell * 1000 : 0;
+
+        // 手續費 = 成交金額 × 0.1425% × 1.4折(=0.14)
+        var buyAmt  = buyVol  * bAvg * 1000;
+        var sellAmt = sellVol * sAvg * 1000;
+        var commission = (buyAmt + sellAmt) * 0.001425 * 0.14;
+
+        // 交易稅：配對部分當沖0.15%，剩餘賣出0.3%
+        var tradeTax = dtVol * sAvg * 1000 * 0.0015
+                     + remainSell * sAvg * 1000 * 0.003;
+
+        var pnl     = matched + unmatched - commission - tradeTax;
+        var pnlStr  = (pnl >= 0 ? '+' : '') + Math.round(pnl).toLocaleString();
+        var pnlColor = pnl > 0 ? '#ef5350' : pnl < 0 ? '#4caf50' : '#aaa';
         return '<tr>' +
           '<td style="color:#888">' + (i+1) + '</td>' +
           '<td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _esc(b.name) + '</td>' +
-          '<td class="text-end" style="color:#ef5350">' + (b.buy||0).toLocaleString() + '</td>' +
-          '<td class="text-end" style="color:#4caf50">' + (b.sell||0).toLocaleString() + '</td>' +
-          '<td class="text-end;font-weight:700" style="color:#f9a825;font-weight:700">' + b._dt.toLocaleString() + '</td>' +
-          '<td class="text-end" style="color:#aaa">' + (b.avg||0).toFixed(2) + '</td>' +
+          '<td class="text-end" style="color:#fff;font-weight:700">' + dtVol.toLocaleString() + '</td>' +
+          '<td class="text-end" style="color:' + pnlColor + ';font-weight:700">' + pnlStr + '</td>' +
+          '<td class="text-end" style="color:#ef5350">' + buyVol.toLocaleString() + '</td>' +
+          '<td class="text-end" style="color:#aaa">'    + bAvg.toFixed(2)         + '</td>' +
+          '<td class="text-end" style="color:#4caf50">' + sellVol.toLocaleString() + '</td>' +
+          '<td class="text-end" style="color:#aaa">'    + sAvg.toFixed(2)          + '</td>' +
         '</tr>';
       }}).join('');
       dtEl.innerHTML =
-        '<div style="color:#888;font-size:.72rem;margin-bottom:4px">⚡ 當沖分點 Top' + top10.length + '（同日買賣皆有）</div>' +
-        '<table class="table table-dark table-sm mb-0" style="font-size:.75rem">' +
+        '<div style="color:#4fc3f7;font-size:.78rem;font-weight:600;margin-bottom:4px">⚡ 當沖分點 Top' + top10.length + '（同日買賣皆有）</div>' +
+        '<table class="table table-dark table-sm mb-0" style="font-size:.9rem">' +
           '<thead><tr>' +
             '<th>#</th>' +
             '<th>券商</th>' +
-            '<th class="text-end" style="color:#ef5350">買張</th>' +
-            '<th class="text-end" style="color:#4caf50">賣張</th>' +
-            '<th class="text-end" style="color:#f9a825">當沖量</th>' +
-            '<th class="text-end">均價</th>' +
+            '<th class="text-end" style="color:#fff">交易張數</th>' +
+            '<th class="text-end" style="color:#fff">總損益(元)</th>' +
+            '<th class="text-end" style="color:#fff">買張</th>' +
+            '<th class="text-end" style="color:#fff">買均</th>' +
+            '<th class="text-end" style="color:#fff">賣張</th>' +
+            '<th class="text-end" style="color:#fff">賣均</th>' +
           '</tr></thead>' +
           '<tbody>' + dtRows + '</tbody>' +
         '</table>';
@@ -1152,6 +1326,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
     return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }}
 
+  renderSectorTags();
   luFilter();
 
   // Event delegation: one listener catches all row clicks

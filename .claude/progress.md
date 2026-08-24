@@ -1,82 +1,88 @@
-# 工作進度紀錄
+# 台股營收監測 — 工作進度
 
-更新時間：2026-08-23
-
----
-
-## 目前狀態
-
-**漲停 (limit-up) tab 點擊展開詳細面板 ── 已完成並驗證**
+> 最後更新：2026-08-23
 
 ---
 
-## 已解決的問題
+## 目前任務：漲停 Tab 功能完善
 
-| 問題 | 解法 |
-|------|------|
-| Python f-string `\"` 跳脫 bug 導致 onclick 立即執行 | 移除 onclick，改用 event delegation |
-| 舊 Python 背景進程覆蓋修正後的 HTML | launch.bat 加入 taskkill |
-| Git merge 從 CI 拉取舊 HTML | 已 commit + push，CI 使用最新程式碼 |
-| push rejected（non-fast-forward） | `git stash -u && git pull --rebase && git stash pop` |
-| **核心 Bug：IIFE 完全無法執行，click handler 全未綁定** | 見下方根本原因分析 |
+### 已完成的功能
+
+| 功能 | 狀態 | Commit |
+|------|------|--------|
+| 點擊漲停列沒反應 (雙重觸發 bug) | ✅ 已修復 | `c39c537` |
+| 氣泡圖滑鼠懸停 tooltip (買量/賣量/買均/賣均) | ✅ 已完成 | `1041b9c` |
+| 當沖 Top10 表格（氣泡圖下方） | ✅ 已完成 | `1041b9c` |
+| 版面調整：買超在左、賣超在右；氣泡圖買進在左 | ✅ 已完成 | `f1479f2` |
+| 買超分點欄位順序：券商→買超→買均→買張→賣張→賣均 | ✅ 已完成 | `f1479f2` |
+| 從 mainprofit.aspx 抓取分開的均買/均賣 | ✅ 程式碼已完成 | `6ebf708` |
 
 ---
 
-## 根本原因（已修復）
+## 尚未完成
 
-**檔案**：`limit_up_tracker.py` 第 773 行
+### 均買/均賣資料目前顯示的是 fallback 值
 
-**問題**：`renderDetailPanel` 函式中 close button 的 JS 字串拼接：
+**問題**：`limit_up_data/20260821.json` 快取中的 broker 資料只有 `avg`（合計均價），**沒有** `buy_avg` / `sell_avg` 欄位。
 
-```python
-# 修復前（錯誤）
-'<button onclick="var d=document.getElementById(\'luDetailRow\');if(d)d.remove();" ' +
-```
+**原因**：
+- `_fetch_mainprofit_avgs()` 函數已寫好（`limit_up_tracker.py` 第 351 行）
+- 但今天（2026-08-23，週六）嘗試抓取時被 HiStock 限速，回傳空結果
+- 現有快取從 git restore 回復（未含 mainprofit 資料）
 
-Python 的 `f"""..."""` 三引號 f-string 中，`\'` 解析後是 `'`（一個單引號），
-輸出到 HTML 的 JS 程式碼就變成：
-
+**JS fallback 行為**（目前顯示）：
 ```javascript
-'<button onclick="var d=document.getElementById('luDetailRow');if(d)d.remove();" ' +
-//                                               ^--- 沒有跳脫！終止了 JS 字串
+var buyAvg = (b.buy_avg || b.avg || 0).toFixed(2);   // buy_avg=null → 顯示 avg
+var sellAvg = (b.sell_avg || b.avg || 0).toFixed(2); // sell_avg=null → 顯示 avg
 ```
 
-這是 JavaScript SyntaxError（`Unexpected identifier 'luDetailRow'`），
-導致整個 `<script>` IIFE 無法解析，所有 click handlers 都沒被綁定。
+**預期修復時間**：週一（2026-08-25）CI 自動執行時，新程式碼會呼叫 `_fetch_mainprofit_avgs()`，快取將寫入正確的 `buy_avg`/`sell_avg`。
 
-```python
-# 修復後（正確）
-'<button onclick="var d=document.getElementById(\\'luDetailRow\\');if(d)d.remove();" ' +
+---
+
+## 已修改的檔案
+
+| 檔案 | 說明 |
+|------|------|
+| `limit_up_tracker.py` | 新增 `_fetch_mainprofit_avgs()`；修復雙重 onclick；更新 JS 產生邏輯（tooltip、當沖表、版面順序、欄位順序） |
+| `index.html` | 由 `fetch_revenue.py` 自動重新產生 |
+| `台股監測.html` | 由 `fetch_revenue.py` 自動重新產生 |
+
+---
+
+## 測試結果
+
+### 已驗證
+- 點擊漲停列 → 詳細面板正確展開/收合（之前雙重觸發已修復）
+- 買超分點在左、賣超分點在右 ✅
+- 氣泡圖買進（紅色）在左、賣出（綠色）在右 ✅
+- 欄位順序：券商、買超、買均、買張、賣張、賣均 ✅
+- 當沖 Top10 表格顯示（同日有買賣的券商，依 min(買,賣) 排序） ✅
+- Tooltip 在懸停氣泡時顯示券商名稱、買量、賣量、買均、賣均 ✅
+
+### 已知問題
+- 均買/均賣目前顯示的是合計均價（因 HiStock 限速，非週一交易日後取得的真實分開數值）
+- 正確值範例（3441 摩根大通）：均買 104.4、均賣 99.5
+
+---
+
+## 常見指令
+
+```bash
+# 手動測試 mainprofit 抓取（需在專案目錄執行）
+cd D:\台股營收監測
+python -c "from limit_up_tracker import _fetch_mainprofit_avgs; mp = _fetch_mainprofit_avgs('3441'); print(mp.get('摩根大通'))"
+
+# 重新抓取並產生 HTML
+cd D:\台股營收監測
+python fetch_revenue.py
 ```
 
-Python 中 `\\'` → `\` + `'` → 輸出 `\'`，JS 字串裡的正確跳脫。
+> **注意**：執行 python 指令時必須先 `cd D:\台股營收監測`，否則會出現 `ModuleNotFoundError: No module named 'limit_up_tracker'`
 
 ---
 
-## 已驗證功能
+## save_limit_up_cache 的跳過邏輯（備忘）
 
-- [x] 點擊漲停列，detail panel 正確在列下方展開
-- [x] ×（close）按鈕可收合 detail panel
-- [x] 同一列再點一次可收合（toggle）
-- [x] 日期切換後 detail panel 自動移除
-- [x] 三大法人摘要（外資/投信/自營 bar）
-- [x] 同族群漲停股顯示
-- [x] 券商分點 Top15 買超/賣超表格
-- [x] 氣泡圖（有分點資料時）
-
----
-
-## 架構備忘
-
-- `limit_up_tracker.py` → `generate_limit_up_html()` 產生 limit-up HTML+JS
-- `fetch_revenue.py` line 6477：`HTML_TEMPLATE.format(..., limit_up_html=...)` 嵌入
-- **重要**：limit-up 的 `<script>` IIFE 在 jQuery CDN tag **之前**執行
-  → 不能使用 jQuery，必須用原生 JS
-- patch 腳本路徑：`scratchpad/patch_lu.py`（搜尋 `<!-- ═══ 漲停分頁 ═══ -->` marker 進行替換）
-
----
-
-## 待辦（若有需要）
-
-- [ ] 加入更多歷史日期快取（目前只有當天）
-- [ ] 行動裝置響應式排版優化
+`limit_up_tracker.py` 約第 504 行：如果舊快取已有 broker 資料，且新抓到的也有，就不覆蓋。  
+→ 若要強制更新快取（含 buy_avg），需先刪除舊快取檔再重新執行。
