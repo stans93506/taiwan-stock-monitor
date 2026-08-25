@@ -133,15 +133,15 @@
       "weight": 1.4
     },
     {
-      "code": "6239",
-      "name": "力成",
-      "shares": 175000,
-      "weight": 0.96
-    },
-    {
       "code": "6187",
       "name": "萬潤",
       "shares": 39000,
+      "weight": 0.96
+    },
+    {
+      "code": "6239",
+      "name": "力成",
+      "shares": 175000,
       "weight": 0.96
     },
     {
@@ -241,5 +241,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "09:09"
+  "fetch_time": "09:43"
 }
