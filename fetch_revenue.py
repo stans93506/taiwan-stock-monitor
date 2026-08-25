@@ -3519,28 +3519,86 @@ _NEWS_USER = """以下是今日（{date}）財經新聞標題，請整理成每�
 {news_list}
 """
 
+_GROQ_MODEL_CACHE: list | None = None
+_GROQ_PREFERRED = [
+    "llama-4-maverick-17b-128e-instruct",
+    "llama-4-scout-17b-16e-instruct",
+    "llama-3.3-70b-versatile",
+    "llama3-70b-8192",
+    "llama-3.1-70b-versatile",
+    "gemma2-9b-it",
+]
+
+def _groq_available_models() -> list[str]:
+    """查詢 Groq 目前可用模型清單（快取於 session）"""
+    global _GROQ_MODEL_CACHE
+    if _GROQ_MODEL_CACHE is not None:
+        return _GROQ_MODEL_CACHE
+    try:
+        r = requests.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        ids = [m["id"] for m in r.json().get("data", [])]
+        _GROQ_MODEL_CACHE = ids
+        return ids
+    except Exception:
+        _GROQ_MODEL_CACHE = []
+        return []
+
+def _groq_pick_model() -> str:
+    """從偏好清單選出第一個目前 Groq 有提供的模型"""
+    avail = _groq_available_models()
+    if avail:
+        for m in _GROQ_PREFERRED:
+            if m in avail:
+                return m
+        # 若偏好清單都沒有，取第一個 chat 模型
+        for m in avail:
+            if "whisper" not in m and "tts" not in m:
+                return m
+    # API 查不到時用最後已知有效的
+    return "llama-3.3-70b-versatile"
+
 def _groq_post(messages: list, temperature=0.4, timeout=60,
-               model: str = "llama-3.3-70b-versatile") -> str:
+               model: str | None = None) -> str:
     """
     呼叫 Groq API，回傳回應文字。
+    model=None 時自動選用目前可用的最佳模型。
     遇到 429（rate limit）時：
       - 若 Retry-After ≤ 30 秒 → 等待後重試一次
       - 若超過 30 秒（當日配額耗盡）→ 拋出明確錯誤
     """
-    def _do_post():
+    if model is None:
+        model = _groq_pick_model()
+
+    def _do_post(m):
         return requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}",
                      "Content-Type": "application/json"},
-            json={"model": model,
+            json={"model": m,
                   "messages": messages,
                   "temperature": temperature},
             timeout=timeout,
         )
 
-    resp = _do_post()
+    resp = _do_post(model)
+
+    # 404 → 模型不存在，自動嘗試下一個可用模型
+    if resp.status_code == 404:
+        avail = _groq_available_models()
+        for fallback in _GROQ_PREFERRED:
+            if fallback != model and fallback in avail:
+                print(f"\n  ⚠️ Groq 模型 {model} 不存在，改用 {fallback}...", end="", flush=True)
+                model = fallback
+                resp = _do_post(model)
+                if resp.status_code != 404:
+                    break
+
     if resp.status_code == 429:
-        # 解析 Retry-After 或 x-ratelimit-reset-requests
         retry_after = None
         for hdr in ("retry-after", "x-ratelimit-reset-requests", "x-ratelimit-reset-tokens"):
             val = resp.headers.get(hdr, "")
@@ -3554,9 +3612,8 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
         if retry_after is not None and retry_after <= 30:
             print(f"\n  ⏳ Groq rate limit，等待 {retry_after:.0f} 秒後重試...", end="", flush=True)
             time.sleep(retry_after + 1)
-            resp = _do_post()   # 重試一次
+            resp = _do_post(model)
         else:
-            # 每日配額耗盡，等待時間太長
             daily = retry_after is not None and retry_after > 30
             msg = (f"Groq 每日配額已用完（需等待 {retry_after:.0f} 秒）" if daily
                    else "Groq 429 Too Many Requests")
@@ -3585,8 +3642,7 @@ def _score_news(all_news: list) -> dict:
 {news_text}"""
     try:
         print(f"  → Groq 評分（{len(all_news)} 則）...", end="", flush=True)
-        raw = _groq_post([{"role": "user", "content": prompt}], temperature=0.1,
-                         model="llama-3.3-70b-versatile")
+        raw = _groq_post([{"role": "user", "content": prompt}], temperature=0.1)
         # 擷取 JSON（取最長的 {...} 段落）
         m = re.search(r'\{[\s\S]*\}', raw)
         if m:
