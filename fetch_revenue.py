@@ -3489,7 +3489,13 @@ def load_borrow_history() -> tuple:
 
 _NEWS_SYSTEM = """你是一位擁有20年經驗的專業投資人，深諳台灣及全球股市、總體經濟與產業鏈研究。
 請以專業投資人的視角，對今日新聞進行深度解讀，分析背後的產業邏輯、供應鏈影響與投資機會。
-回答用繁體中文，條列式呈現，分析要具體深入，不可流於表面。不需附任何連結。"""
+回答用繁體中文，條列式呈現，分析要具體深入，不可流於表面。不需附任何連結。
+重要格式規定：
+- 直接輸出內容，不要加開場白、自我介紹或結語
+- 每個區塊標題用 ## 開頭，例如：## 一、前日美股狀況
+- 子標題用 ### 開頭
+- 重點用 - 開頭條列
+- 個股名稱後面用粗體標注代號，例如：台積電 **2330**"""
 
 _NEWS_USER = """以下是今日（{date}）財經新聞標題，請整理成每日早報，包含四個區塊，每區塊至少200字：
 
@@ -3920,14 +3926,32 @@ def fetch_daily_news_analysis() -> tuple:
         analysis_md = f"⚠️ Groq API 呼叫失敗：{e}"
 
     # 4. markdown → html
+    # 去除開頭自我介紹（第一行若不是 # 或 - 開頭）
+    md_lines = analysis_md.strip().split("\n")
+    while md_lines and not md_lines[0].strip().startswith(("#", "-", "|", "##")):
+        first = md_lines[0].strip()
+        if len(first) < 80 and any(w in first for w in ("我是", "早報", "分析師", "您好", "你好", "針對")):
+            md_lines.pop(0)
+        else:
+            break
+    analysis_md = "\n".join(md_lines)
+
     text = re.sub(r'^#{1,6} (.+)$', lambda m: f'<h2>{m.group(1)}</h2>', analysis_md, flags=re.MULTILINE)
+    # | 一、標題 格式（qwen 模型習慣）
+    text = re.sub(r'^\|\s*([一二三四五六七八九十\d]+[、.．]?\s*.+)$',
+                  lambda m: f'<h2>{m.group(1).strip()}</h2>', text, flags=re.MULTILINE)
     text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
     lines, html_lines, in_ul = text.split("\n"), [], False
     for line in lines:
-        if line.strip().startswith("- "):
+        stripped = line.strip()
+        if stripped.startswith("- ") or stripped.startswith("• "):
             if not in_ul:
                 html_lines.append("<ul>"); in_ul = True
-            html_lines.append(f"<li>{line.strip()[2:]}</li>")
+            html_lines.append(f"<li>{stripped[2:]}</li>")
+        elif stripped.startswith("* ") and not stripped.startswith("**"):
+            if not in_ul:
+                html_lines.append("<ul>"); in_ul = True
+            html_lines.append(f"<li>{stripped[2:]}</li>")
         else:
             if in_ul:
                 html_lines.append("</ul>"); in_ul = False
