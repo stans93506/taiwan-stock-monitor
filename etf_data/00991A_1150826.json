@@ -1,130 +1,130 @@
 {
   "etf_code": "00991A",
   "etf_name": "主動復華未來50 ETF",
-  "date": "115/08/25",
-  "nav_per_unit": 17.66,
-  "nav_total": 84995198006.0,
-  "units": 4811916000.0,
+  "date": "115/08/26",
+  "nav_per_unit": 18.11,
+  "nav_total": 85945727964.0,
+  "units": 4746416000.0,
   "holdings": [
     {
       "code": "2330",
       "name": "台灣積體",
-      "shares": 4500000,
-      "weight": 12.707
+      "shares": 4200000,
+      "weight": 11.802
     },
     {
       "code": "2383",
       "name": "台光電子",
       "shares": 1400000,
-      "weight": 9.216
+      "weight": 9.603
     },
     {
       "code": "2059",
       "name": "川湖科技",
       "shares": 510000,
-      "weight": 8.571
+      "weight": 8.61
     },
     {
       "code": "2408",
       "name": "南亞科技",
       "shares": 14000000,
-      "weight": 8.4
+      "weight": 8.422
     },
     {
       "code": "3037",
       "name": "欣興電子",
       "shares": 5000000,
-      "weight": 6.442
+      "weight": 6.748
     },
     {
       "code": "2327",
       "name": "國巨股份",
       "shares": 7700000,
-      "weight": 4.928
+      "weight": 4.811
     },
     {
       "code": "6669",
       "name": "緯穎科技",
       "shares": 600000,
-      "weight": 4.546
-    },
-    {
-      "code": "8046",
-      "name": "南亞電路",
-      "shares": 3250000,
-      "weight": 4.436
+      "weight": 4.737
     },
     {
       "code": "2454",
       "name": "聯發科技",
       "shares": 1000000,
-      "weight": 4.394
-    },
-    {
-      "code": "6223",
-      "name": "旺矽科技",
-      "shares": 660000,
-      "weight": 4.348
+      "weight": 4.59
     },
     {
       "code": "3017",
       "name": "奇鋐科技",
       "shares": 1250000,
-      "weight": 4.338
+      "weight": 4.589
+    },
+    {
+      "code": "8046",
+      "name": "南亞電路",
+      "shares": 3250000,
+      "weight": 4.462
     },
     {
       "code": "6274",
       "name": "台燿科技",
       "shares": 2400000,
-      "weight": 4.193
-    },
-    {
-      "code": "2345",
-      "name": "智邦科技",
-      "shares": 1750000,
-      "weight": 4.18
+      "weight": 4.272
     },
     {
       "code": "3189",
       "name": "景碩科技",
       "shares": 4100000,
-      "weight": 4.028
+      "weight": 4.203
+    },
+    {
+      "code": "2345",
+      "name": "智邦科技",
+      "shares": 1700000,
+      "weight": 4.065
+    },
+    {
+      "code": "6223",
+      "name": "旺矽科技",
+      "shares": 560000,
+      "weight": 3.284
     },
     {
       "code": "7769",
       "name": "鴻勁精密",
-      "shares": 380000,
-      "weight": 2.776
+      "shares": 360000,
+      "weight": 2.654
     },
     {
       "code": "3081",
       "name": "聯亞光電",
       "shares": 700000,
-      "weight": 2.438
-    },
-    {
-      "code": "5274",
-      "name": "信驊科技",
-      "shares": 120500,
-      "weight": 2.183
-    },
-    {
-      "code": "8299",
-      "name": "群聯電子",
-      "shares": 880000,
-      "weight": 2.159
+      "weight": 2.651
     },
     {
       "code": "3653",
       "name": "健策精密",
       "shares": 340000,
-      "weight": 2.082
+      "weight": 2.265
+    },
+    {
+      "code": "5274",
+      "name": "信驊科技",
+      "shares": 120500,
+      "weight": 2.2
+    },
+    {
+      "code": "8299",
+      "name": "群聯電子",
+      "shares": 880000,
+      "weight": 2.176
     },
     {
       "code": "3026",
       "name": "禾伸堂企",
       "shares": 2700000,
-      "weight": 1.995
+      "weight": 1.929
     },
     {
       "code": "3008",
@@ -145,26 +145,26 @@
       "weight": 0.003
     },
     {
-      "code": "2603",
-      "name": "長榮海運",
-      "shares": 9000,
-      "weight": 0.003
-    },
-    {
       "code": "2317",
       "name": "鴻海精密",
       "shares": 9000,
       "weight": 0.003
     },
     {
-      "code": "3665",
-      "name": "貿聯-KY",
-      "shares": 1000,
+      "code": "2603",
+      "name": "長榮海運",
+      "shares": 9000,
       "weight": 0.002
     },
     {
       "code": "2360",
       "name": "致茂電子",
+      "shares": 1000,
+      "weight": 0.002
+    },
+    {
+      "code": "3665",
+      "name": "貿聯-KY",
       "shares": 1000,
       "weight": 0.002
     },
@@ -307,5 +307,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "16:41"
+  "fetch_time": "17:10"
 }
