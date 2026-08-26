@@ -3529,8 +3529,11 @@ _GROQ_PREFERRED = [
     "gemma2-9b-it",
 ]
 
+_GROQ_EXCLUDE_KEYWORDS = ("whisper", "tts", "guard", "embed", "vision",
+                           "distil", "preview", "speculative")
+
 def _groq_available_models() -> list[str]:
-    """查詢 Groq 目前可用模型清單（快取於 session）"""
+    """查詢 Groq 目前可用 chat 模型清單（快取於 session）"""
     global _GROQ_MODEL_CACHE
     if _GROQ_MODEL_CACHE is not None:
         return _GROQ_MODEL_CACHE
@@ -3541,10 +3544,15 @@ def _groq_available_models() -> list[str]:
             timeout=10,
         )
         r.raise_for_status()
-        ids = [m["id"] for m in r.json().get("data", [])]
+        ids = [
+            m["id"] for m in r.json().get("data", [])
+            if not any(kw in m["id"].lower() for kw in _GROQ_EXCLUDE_KEYWORDS)
+        ]
         _GROQ_MODEL_CACHE = ids
+        print(f"  [Groq] 可用 chat 模型：{ids}")
         return ids
-    except Exception:
+    except Exception as e:
+        print(f"  [Groq] 查詢模型清單失敗：{e}")
         _GROQ_MODEL_CACHE = []
         return []
 
@@ -3555,11 +3563,7 @@ def _groq_pick_model() -> str:
         for m in _GROQ_PREFERRED:
             if m in avail:
                 return m
-        # 若偏好清單都沒有，取第一個 chat 模型
-        for m in avail:
-            if "whisper" not in m and "tts" not in m:
-                return m
-    # API 查不到時用最後已知有效的
+        return avail[0]
     return "llama-3.3-70b-versatile"
 
 def _groq_post(messages: list, temperature=0.4, timeout=60,
@@ -3587,16 +3591,25 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
 
     resp = _do_post(model)
 
-    # 404 → 模型不存在，自動嘗試下一個可用模型
-    if resp.status_code == 404:
+    # 404/400 → 模型不存在或不支援，自動嘗試下一個可用模型
+    if resp.status_code in (400, 404):
         avail = _groq_available_models()
-        for fallback in _GROQ_PREFERRED:
-            if fallback != model and fallback in avail:
-                print(f"\n  ⚠️ Groq 模型 {model} 不存在，改用 {fallback}...", end="", flush=True)
+        err_body = ""
+        try:
+            err_body = resp.json().get("error", {}).get("message", "")
+        except Exception:
+            pass
+        print(f"\n  ⚠️ Groq {resp.status_code} ({model}): {err_body}", end="", flush=True)
+        tried = {model}
+        for fallback in _GROQ_PREFERRED + avail:
+            if fallback in tried:
+                continue
+            tried.add(fallback)
+            print(f" → 改用 {fallback}...", end="", flush=True)
+            resp = _do_post(fallback)
+            if resp.status_code not in (400, 404):
                 model = fallback
-                resp = _do_post(model)
-                if resp.status_code != 404:
-                    break
+                break
 
     if resp.status_code == 429:
         retry_after = None
