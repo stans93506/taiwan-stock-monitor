@@ -3632,6 +3632,8 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
                    else "Groq 429 Too Many Requests")
             raise RuntimeError(msg)
 
+    if resp.status_code == 413:
+        raise RuntimeError(f"413 Payload Too Large（模型：{model}）")
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"]
 
@@ -3785,36 +3787,52 @@ def fetch_daily_news_analysis() -> tuple:
         print(f"  → 本地模式：高分新聞已輸出至 news_high_score.txt（{len(_high)} 篇）")
 
     # 步驟4：AI 深度分析
-    # score≥4：標題 + 400 字內文；score=3：標題；score≤2：不進分析
-    # 依高分優先累積，超過 20,000 字元截止（避免 Groq 413）
-    _NEWS_CHAR_LIMIT = 8_000
-    analysis_news = []
-    _chars = 0
-    for _it in all_news:
-        if (_it.get("score") or 0) < 3:
-            continue
-        _line = f"[{len(analysis_news)+1}] ({_it['source']}) {_it['title']}"
-        if _it.get("snippet"):
-            _line += f"\n    【內文】{_it['snippet'][:400]}"  # Groq 分析截回 400 字
-        if _chars + len(_line) > _NEWS_CHAR_LIMIT:
-            break
-        analysis_news.append(_it)
-        _chars += len(_line)
-    news_text = "\n".join(
-        f"[{i+1}] ({item['source']}) {item['title']}" +
-        (f"\n    【內文】{item['snippet']}" if item.get('snippet') else "")
-        for i, item in enumerate(analysis_news)
-    )
+    # score≥4：標題 + 200 字內文；score=3：標題；score≤2：不進分析
+    # 中文 1 字 ≈ 1~2 tokens，4000 字元 ≈ 4000~8000 tokens，留給 system prompt + 回覆空間
+    _NEWS_CHAR_LIMIT = 4_000
+
+    def _build_news_text(char_limit, snippet_limit=200):
+        items, chars = [], 0
+        for _it in all_news:
+            if (_it.get("score") or 0) < 3:
+                continue
+            _line = f"[{len(items)+1}] ({_it['source']}) {_it['title']}"
+            if _it.get("snippet"):
+                _line += f"\n    【內文】{_it['snippet'][:snippet_limit]}"
+            if chars + len(_line) > char_limit:
+                break
+            items.append(_it)
+            chars += len(_line)
+        return items, chars, "\n".join(
+            f"[{i+1}] ({it['source']}) {it['title']}" +
+            (f"\n    【內文】{it['snippet'][:snippet_limit]}" if it.get('snippet') else "")
+            for i, it in enumerate(items)
+        )
+
+    analysis_news, _chars, news_text = _build_news_text(_NEWS_CHAR_LIMIT)
     user_msg = _NEWS_USER.format(
         date=datetime.now().strftime("%Y/%m/%d"),
         news_list=news_text,
     )
     print(f"  → Groq 分析（score≥3 取 {len(analysis_news)} 則 / {_chars} 字，含 {got if _fetch_targets else 0} 篇內文）...", end="", flush=True)
     try:
-        analysis_md = _groq_post([
+        messages = [
             {"role": "system", "content": _NEWS_SYSTEM},
             {"role": "user",   "content": user_msg},
-        ])
+        ]
+        try:
+            analysis_md = _groq_post(messages)
+        except RuntimeError as _e413:
+            if "413" not in str(_e413):
+                raise
+            # 413：縮減一半後重試
+            print(f"\n  ⚠️ Groq 413，縮減內容後重試...", end="", flush=True)
+            analysis_news, _chars, news_text = _build_news_text(_NEWS_CHAR_LIMIT // 2, snippet_limit=0)
+            messages[1]["content"] = _NEWS_USER.format(
+                date=datetime.now().strftime("%Y/%m/%d"),
+                news_list=news_text,
+            )
+            analysis_md = _groq_post(messages)
         print(" 完成")
     except Exception as e:
         print(f" 失敗: {e}")
