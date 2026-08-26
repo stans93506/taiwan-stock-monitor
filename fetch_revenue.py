@@ -3840,7 +3840,7 @@ def fetch_daily_news_analysis() -> tuple:
     # 步驟4：AI 深度分析
     # score≥4：標題 + 200 字內文；score=3：標題；score≤2：不進分析
     # 中文 1 字 ≈ 1~2 tokens，4000 字元 ≈ 4000~8000 tokens，留給 system prompt + 回覆空間
-    _NEWS_CHAR_LIMIT = 4_000
+    _NEWS_CHAR_LIMIT = 8_000
 
     def _build_news_text(char_limit, snippet_limit=200):
         items, chars = [], 0
@@ -3890,7 +3890,7 @@ def fetch_daily_news_analysis() -> tuple:
         analysis_md = f"⚠️ Groq API 呼叫失敗：{e}"
 
     # 4. markdown → html
-    text = re.sub(r'^## (.+)$', r'<h2>\1</h2>', analysis_md, flags=re.MULTILINE)
+    text = re.sub(r'^#{1,6} (.+)$', lambda m: f'<h2>{m.group(1)}</h2>', analysis_md, flags=re.MULTILINE)
     text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
     lines, html_lines, in_ul = text.split("\n"), [], False
     for line in lines:
