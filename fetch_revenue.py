@@ -3524,38 +3524,46 @@ _GEMINI_MODELS = [
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
     "gemini-1.5-flash",
-    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro",
 ]
 
 def _gemini_post(messages: list, temperature=0.4, timeout=60) -> str:
-    """呼叫 Google Gemini API（OpenAI 相容格式），免費 Free tier。"""
+    """呼叫 Google Gemini 原生 API（generateContent），免費 Free tier。"""
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY 未設定")
 
-    def _parse_err(r):
-        try:
-            body = r.json()
-            return (body.get("error", {}).get("message", "")
-                    or str(body))
-        except Exception:
-            return r.text[:200]
+    # 轉換 messages 格式：system → systemInstruction，其餘 → contents
+    system_text = ""
+    contents = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_text = msg["content"]
+        else:
+            role = "model" if msg["role"] == "assistant" else "user"
+            contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+    body = {
+        "contents": contents,
+        "generationConfig": {"temperature": temperature},
+    }
+    if system_text:
+        body["systemInstruction"] = {"parts": [{"text": system_text}]}
 
     last_err = ""
     for model in _GEMINI_MODELS:
         resp = requests.post(
-            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-            headers={"Authorization": f"Bearer {GEMINI_API_KEY}",
-                     "Content-Type": "application/json"},
-            json={"model": model,
-                  "messages": messages,
-                  "temperature": temperature},
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            params={"key": GEMINI_API_KEY},
+            json=body,
             timeout=timeout,
         )
         if resp.ok:
-            return resp.json()["choices"][0]["message"]["content"]
-        last_err = f"{resp.status_code}: {_parse_err(resp)}"
+            try:
+                return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+            except (KeyError, IndexError) as e:
+                raise RuntimeError(f"Gemini 回應格式異常: {e}, body={resp.text[:200]}")
+        last_err = resp.text[:300]
         if resp.status_code not in (404, 400):
-            break  # 非模型不存在的錯誤就不再換模型
+            break
     raise RuntimeError(f"Gemini {last_err}")
 
 
@@ -3709,19 +3717,26 @@ def _score_news(all_news: list) -> dict:
     try:
         print(f"  → Groq 評分（{len(all_news)} 則）...", end="", flush=True)
         raw = _ai_post([{"role": "user", "content": prompt}], temperature=0.1)
-        # 擷取 JSON（取最長的 {...} 段落）
+        # 擷取 JSON：支援 {"scores":{...}} 和 {"1":5,...} 兩種格式
         m = re.search(r'\{[\s\S]*\}', raw)
         if m:
-            data = json.loads(m.group())
+            try:
+                data = json.loads(m.group())
+            except json.JSONDecodeError:
+                # 嘗試取最後一個完整的 {...}
+                candidates = re.findall(r'\{[^{}]*\}', raw)
+                data = json.loads(candidates[-1]) if candidates else {}
             scores = {}
-            for k, v in data.get("scores", {}).items():
+            src = data.get("scores", data)  # 支援有無 "scores" wrapper
+            for k, v in src.items():
                 try:
                     scores[int(k)] = max(0, min(5, int(float(v))))
                 except (ValueError, TypeError):
                     pass
-            print(f" 完成（{len(scores)}/{len(all_news)} 則有分數）")
-            return scores
-        print(" 回傳格式異常")
+            if scores:
+                print(f" 完成（{len(scores)}/{len(all_news)} 則有分數）")
+                return scores
+        print(f" 回傳格式異常（前100字：{raw[:100]!r}）")
     except Exception as e:
         print(f" 失敗: {e}")
     return {}
