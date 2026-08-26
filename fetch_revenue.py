@@ -3580,11 +3580,11 @@ def _ai_post(messages: list, temperature=0.4, timeout=60) -> str:
 _GROQ_MODEL_CACHE: list | None = None
 # 依偏好順序：開發者方案可用的大 context 模型優先
 _GROQ_PREFERRED = [
-    "openai/gpt-oss-20b",          # 131K context, 1000 t/s, 開發者方案可用
-    "openai/gpt-oss-120b",         # 131K context, 500 t/s
+    "qwen/qwen3.8-27b",            # 131K context，財務 prompt 回應穩定
     "qwen/qwen3.6-27b",            # 131K context
+    "openai/gpt-oss-120b",         # 131K context, 500 t/s
+    "openai/gpt-oss-20b",          # 131K context（對財務 prompt 有內容過濾，備用）
     "llama-3.3-70b-versatile",     # Enterprise，若帳號有權限則使用
-    "llama-3.1-8b-instant",        # Enterprise fallback
 ]
 
 # 排除非 chat 模型（語音、guard、embedding 等）
@@ -3694,7 +3694,22 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
     if resp.status_code == 413:
         raise RuntimeError(f"413 Payload Too Large（模型：{model}）")
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    content = resp.json()["choices"][0]["message"]["content"] or ""
+    if not content.strip():
+        # 空回應 → 嘗試換模型
+        avail = _groq_available_models()
+        tried = {model}
+        for fallback in _GROQ_PREFERRED + avail:
+            if fallback in tried:
+                continue
+            tried.add(fallback)
+            r2 = _do_post(fallback)
+            if r2.ok:
+                c2 = r2.json()["choices"][0]["message"]["content"] or ""
+                if c2.strip():
+                    return c2
+        raise RuntimeError(f"Groq 所有模型均回傳空回應")
+    return content
 
 
 def _score_news(all_news: list) -> dict:
