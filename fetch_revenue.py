@@ -116,7 +116,8 @@ REV_HIST_MONTHS    = 60   # 保留最近幾個月的歷史月營收
 MONTHLY_QTR_HIST_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monthly_qtr_hist_cache.json")
 # 不適用季報頁面的股票代碼（不公布 EPS 或格式不符，如投資控股、特殊目的公司）
 QTR_SKIP_CODES = {"7631"}
-GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")  # Groq 免費 API
+GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")
+GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
 
 HEADERS = {
     "User-Agent": (
@@ -3519,6 +3520,37 @@ _NEWS_USER = """以下是今日（{date}）財經新聞標題，請整理成每�
 {news_list}
 """
 
+def _gemini_post(messages: list, temperature=0.4, timeout=60) -> str:
+    """呼叫 Google Gemini API（OpenAI 相容格式），免費 Free tier。"""
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY 未設定")
+    resp = requests.post(
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        headers={"Authorization": f"Bearer {GEMINI_API_KEY}",
+                 "Content-Type": "application/json"},
+        json={"model": "gemini-2.0-flash",
+              "messages": messages,
+              "temperature": temperature},
+        timeout=timeout,
+    )
+    if not resp.ok:
+        err = ""
+        try: err = resp.json().get("error", {}).get("message", "")
+        except Exception: pass
+        raise RuntimeError(f"Gemini {resp.status_code}: {err}")
+    return resp.json()["choices"][0]["message"]["content"]
+
+
+def _ai_post(messages: list, temperature=0.4, timeout=60) -> str:
+    """優先 Gemini，失敗才 fallback 到 Groq。"""
+    if GEMINI_API_KEY:
+        try:
+            return _gemini_post(messages, temperature, timeout)
+        except Exception as e:
+            print(f"\n  ⚠️ Gemini 失敗（{e}），改用 Groq...", end="", flush=True)
+    return _groq_post(messages, temperature, timeout)
+
+
 _GROQ_MODEL_CACHE: list | None = None
 # 依偏好順序：開發者方案可用的大 context 模型優先
 _GROQ_PREFERRED = [
@@ -3658,7 +3690,7 @@ def _score_news(all_news: list) -> dict:
 {news_text}"""
     try:
         print(f"  → Groq 評分（{len(all_news)} 則）...", end="", flush=True)
-        raw = _groq_post([{"role": "user", "content": prompt}], temperature=0.1)
+        raw = _ai_post([{"role": "user", "content": prompt}], temperature=0.1)
         # 擷取 JSON（取最長的 {...} 段落）
         m = re.search(r'\{[\s\S]*\}', raw)
         if m:
@@ -3822,18 +3854,18 @@ def fetch_daily_news_analysis() -> tuple:
             {"role": "user",   "content": user_msg},
         ]
         try:
-            analysis_md = _groq_post(messages)
+            analysis_md = _ai_post(messages)
         except RuntimeError as _e413:
             if "413" not in str(_e413):
                 raise
             # 413：縮減一半後重試
-            print(f"\n  ⚠️ Groq 413，縮減內容後重試...", end="", flush=True)
+            print(f"\n  ⚠️ 413，縮減內容後重試...", end="", flush=True)
             analysis_news, _chars, news_text = _build_news_text(_NEWS_CHAR_LIMIT // 2, snippet_limit=0)
             messages[1]["content"] = _NEWS_USER.format(
                 date=datetime.now().strftime("%Y/%m/%d"),
                 news_list=news_text,
             )
-            analysis_md = _groq_post(messages)
+            analysis_md = _ai_post(messages)
         print(" 完成")
     except Exception as e:
         print(f" 失敗: {e}")
