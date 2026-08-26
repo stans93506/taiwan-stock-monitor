@@ -3520,17 +3520,18 @@ _NEWS_USER = """以下是今日（{date}）財經新聞標題，請整理成每�
 """
 
 _GROQ_MODEL_CACHE: list | None = None
+# 依偏好順序：開發者方案可用的大 context 模型優先
 _GROQ_PREFERRED = [
-    "llama-4-maverick-17b-128e-instruct",
-    "llama-4-scout-17b-16e-instruct",
-    "llama-3.3-70b-versatile",
-    "llama3-70b-8192",
-    "llama-3.1-70b-versatile",
-    "gemma2-9b-it",
+    "openai/gpt-oss-20b",          # 131K context, 1000 t/s, 開發者方案可用
+    "openai/gpt-oss-120b",         # 131K context, 500 t/s
+    "qwen/qwen3.6-27b",            # 131K context
+    "llama-3.3-70b-versatile",     # Enterprise，若帳號有權限則使用
+    "llama-3.1-8b-instant",        # Enterprise fallback
 ]
 
-_GROQ_EXCLUDE_KEYWORDS = ("whisper", "tts", "guard", "embed", "vision",
-                           "distil", "preview", "speculative")
+# 排除非 chat 模型（語音、guard、embedding 等）
+_GROQ_EXCLUDE_KEYWORDS = ("whisper", "tts", "guard", "safeguard", "embed",
+                           "orpheus", "canopylabs", "distil", "speculative")
 
 def _groq_available_models() -> list[str]:
     """查詢 Groq 目前可用 chat 模型清單（快取於 session）"""
