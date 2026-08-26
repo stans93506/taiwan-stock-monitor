@@ -3520,25 +3520,43 @@ _NEWS_USER = """以下是今日（{date}）財經新聞標題，請整理成每�
 {news_list}
 """
 
+_GEMINI_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+]
+
 def _gemini_post(messages: list, temperature=0.4, timeout=60) -> str:
     """呼叫 Google Gemini API（OpenAI 相容格式），免費 Free tier。"""
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY 未設定")
-    resp = requests.post(
-        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        headers={"Authorization": f"Bearer {GEMINI_API_KEY}",
-                 "Content-Type": "application/json"},
-        json={"model": "gemini-2.0-flash",
-              "messages": messages,
-              "temperature": temperature},
-        timeout=timeout,
-    )
-    if not resp.ok:
-        err = ""
-        try: err = resp.json().get("error", {}).get("message", "")
-        except Exception: pass
-        raise RuntimeError(f"Gemini {resp.status_code}: {err}")
-    return resp.json()["choices"][0]["message"]["content"]
+
+    def _parse_err(r):
+        try:
+            body = r.json()
+            return (body.get("error", {}).get("message", "")
+                    or str(body))
+        except Exception:
+            return r.text[:200]
+
+    last_err = ""
+    for model in _GEMINI_MODELS:
+        resp = requests.post(
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            headers={"Authorization": f"Bearer {GEMINI_API_KEY}",
+                     "Content-Type": "application/json"},
+            json={"model": model,
+                  "messages": messages,
+                  "temperature": temperature},
+            timeout=timeout,
+        )
+        if resp.ok:
+            return resp.json()["choices"][0]["message"]["content"]
+        last_err = f"{resp.status_code}: {_parse_err(resp)}"
+        if resp.status_code not in (404, 400):
+            break  # 非模型不存在的錯誤就不再換模型
+    raise RuntimeError(f"Gemini {last_err}")
 
 
 def _ai_post(messages: list, temperature=0.4, timeout=60) -> str:
