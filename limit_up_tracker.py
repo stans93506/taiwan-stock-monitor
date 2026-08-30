@@ -5,7 +5,7 @@
 """
 
 import json, os, re, requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -333,62 +333,34 @@ def _fetch_tpex_institutional(date_str: str) -> dict:
 
 
 # ── 券商分點買賣超（HiStock） ─────────────────────────────────────────
-def _fetch_histock_branch(code: str, date_str: str) -> list:
-    """
-    從 HiStock 抓取個股券商分點買賣超。
-    URL: https://histock.tw/stock/branch.aspx?no={code}&from={YYYYMMDD}&to={YYYYMMDD}
-
-    回傳 [{name, buy, sell, net, avg, side}]
-    - side='buy' 買超分點, side='sell' 賣超分點
-    - 單位：張（頁面已是張）
-    """
-    url = (f"https://histock.tw/stock/branch.aspx"
-           f"?no={code}&from={date_str}&to={date_str}")
-    hdrs = {
-        "User-Agent": _H["User-Agent"],
-        "Referer": f"https://histock.tw/stock/{code}",
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "zh-TW,zh;q=0.9",
-    }
+def _parse_branch_html(html: str) -> list:
+    """從 branch.aspx HTML 解析分點資料，回傳 [{name,buy,sell,net,avg,side}]。"""
     result = []
-    try:
-        resp = requests.get(url, headers=hdrs, timeout=20, verify=False)
-        html = resp.text
+    m = re.search(r'class="tb-stock tbChip[^"]*"(.*?)</table>', html, re.DOTALL)
+    if not m:
+        return result
+    table_html = m.group(1)
+    all_rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL)
 
-        m = re.search(r'class="tb-stock tbChip[^"]*"(.*?)</table>', html, re.DOTALL)
-        if not m:
-            return result
-        table_html = m.group(1)
-        all_rows = re.findall(r'<tr[^>]*>(.*?)</tr>', table_html, re.DOTALL)
+    def _cell(s):
+        return re.sub(r'<[^>]+>', '', s).strip().replace(',', '')
 
-        def _cell(s):
-            return re.sub(r'<[^>]+>', '', s).strip().replace(',', '')
-
-        for row_html in all_rows[1:]:   # 跳過標題列
-            cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
-            if len(cells) < 10:
-                continue
-            # 賣超側（左）: cols 0-4 → 券商名稱,買張,賣張,賣超,均價
-            s_name = _cell(cells[0])
-            s_buy  = _parse_int(_cell(cells[1]))
-            s_sell = _parse_int(_cell(cells[2]))
-            s_net  = _parse_int(_cell(cells[3]))
-            s_avg  = _parse_float(_cell(cells[4]))
-            # 買超側（右）: cols 5-9 → 券商名稱,買張,賣張,買超,均價
-            b_name = _cell(cells[5])
-            b_buy  = _parse_int(_cell(cells[6]))
-            b_sell = _parse_int(_cell(cells[7]))
-            b_net  = _parse_int(_cell(cells[8]))
-            b_avg  = _parse_float(_cell(cells[9]))
-
-            if s_name:
-                result.append({"name": s_name, "buy": s_buy, "sell": s_sell,
-                               "net": s_net,  "avg": s_avg,  "side": "sell"})
-            if b_name:
-                result.append({"name": b_name, "buy": b_buy, "sell": b_sell,
-                               "net": b_net,  "avg": b_avg,  "side": "buy"})
-    except Exception as e:
-        print(f"  [分點] {code}: {e}")
+    for row_html in all_rows[1:]:
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+        if len(cells) < 10:
+            continue
+        s_name = _cell(cells[0]); s_buy  = _parse_int(_cell(cells[1]))
+        s_sell = _parse_int(_cell(cells[2])); s_net  = _parse_int(_cell(cells[3]))
+        s_avg  = _parse_float(_cell(cells[4]))
+        b_name = _cell(cells[5]); b_buy  = _parse_int(_cell(cells[6]))
+        b_sell = _parse_int(_cell(cells[7])); b_net  = _parse_int(_cell(cells[8]))
+        b_avg  = _parse_float(_cell(cells[9]))
+        if s_name:
+            result.append({"name": s_name, "buy": s_buy, "sell": s_sell,
+                           "net": s_net, "avg": s_avg, "side": "sell"})
+        if b_name:
+            result.append({"name": b_name, "buy": b_buy, "sell": b_sell,
+                           "net": b_net, "avg": b_avg, "side": "buy"})
     return result
 
 
@@ -457,37 +429,55 @@ def _mainprofit_page_html(page, code: str) -> str:
     return page.content()
 
 
-def fetch_all_mainprofit_avgs(codes: list) -> dict:
+def fetch_all_histock(codes: list, date_str: str) -> dict:
     """
-    登入一次，批量抓取所有股票的均買/均賣。
-    回傳 {code: {broker_name: (buy_avg, sell_avg)}}
+    登入一次，批量抓取所有股票的分點買賣超 + 均買/均賣。
+    回傳 {code: {'brokers': [...], 'mainprofit': {broker_name: (buy_avg, sell_avg)}}}
     """
     import time as _time
     from playwright.sync_api import sync_playwright
-    results = {c: {} for c in codes}
+    results = {c: {"brokers": [], "mainprofit": {}} for c in codes}
     if not codes or not _histock_creds()[0]:
         return results
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, args=_MP_ARGS)
+        browser = p.chromium.launch(headless=True, args=_MP_ARGS)
         ctx = browser.new_context(user_agent=_MP_UA)
         try:
             page = ctx.new_page()
             if not _histock_login(page):
-                print("  [主力] HiStock 登入失敗")
+                print("  [HiStock] 登入失敗")
                 return results
-            print(f"  [主力] 登入成功，開始抓取 {len(codes)} 檔...")
+            print(f"  [HiStock] 登入成功，開始抓取 {len(codes)} 檔分點+均價...")
             for i, code in enumerate(codes, 1):
                 try:
-                    html = _mainprofit_page_html(page, code)
-                    results[code] = _parse_mainprofit_html(html)
-                    print(f"  [主力] [{i}/{len(codes)}] {code}: {len(results[code])} 筆")
+                    # 分點買賣超
+                    branch_url = (f"https://histock.tw/stock/branch.aspx"
+                                  f"?no={code}&from={date_str}&to={date_str}")
+                    page.goto(branch_url, wait_until="load", timeout=30_000)
+                    brokers = _parse_branch_html(page.content())
+                    results[code]["brokers"] = brokers
+
+                    # 均買/均賣（只在有分點時抓）
+                    if brokers:
+                        mp_html = _mainprofit_page_html(page, code)
+                        results[code]["mainprofit"] = _parse_mainprofit_html(mp_html)
+
+                    print(f"  [HiStock] [{i}/{len(codes)}] {code}: {len(brokers)} 分點")
                 except Exception as e:
-                    print(f"  [主力] [{i}/{len(codes)}] {code}: {e}")
+                    print(f"  [HiStock] [{i}/{len(codes)}] {code}: {e}")
                 _time.sleep(1)
         finally:
             ctx.close()
             browser.close()
     return results
+
+
+def fetch_all_mainprofit_avgs(codes: list) -> dict:
+    """向下相容：只回傳均買/均賣（內部呼叫 fetch_all_histock）。"""
+    import datetime as _dt
+    date_str = _tw_now().strftime("%Y%m%d")
+    data = fetch_all_histock(codes, date_str)
+    return {c: v["mainprofit"] for c, v in data.items()}
 
 
 def _parse_mainprofit_html(html: str) -> dict:
@@ -586,40 +576,25 @@ def fetch_limit_up(date_str: str = None) -> list:
     tpex_cnt = sum(1 for r in result if r["market"] == "上櫃")
     print(f"  [漲停] 共 {len(result)} 檔漲停（上市 {twse_cnt} / 上櫃 {tpex_cnt}）")
 
-    # 抓取 HiStock 券商分點（並行，每批最多 4 個請求）
+    # 抓取 HiStock 分點 + 均買均賣（Playwright 登入，循序抓取）
     if result:
-        print(f"  [分點] 抓取 {len(result)} 檔券商分點...")
-        broker_map: dict = {}
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            futs = {ex.submit(_fetch_histock_branch, r["code"], date_str): r["code"]
-                    for r in result}
-            for fut in as_completed(futs):
-                code = futs[fut]
-                try:
-                    broker_map[code] = fut.result()
-                except Exception:
-                    broker_map[code] = []
+        codes = [r["code"] for r in result]
+        hs_data = fetch_all_histock(codes, date_str)
         for row in result:
-            row["brokers"] = broker_map.get(row["code"], [])
+            code = row["code"]
+            brokers = hs_data[code]["brokers"]
+            mp = hs_data[code]["mainprofit"]
+            for b in brokers:
+                avgs = mp.get(b["name"])
+                if avgs and (avgs[0] > 0 or avgs[1] > 0):
+                    b["buy_avg"]  = avgs[0]
+                    b["sell_avg"] = avgs[1]
+                else:
+                    b["buy_avg"]  = b["avg"]
+                    b["sell_avg"] = b["avg"]
+            row["brokers"] = brokers
         ok = sum(1 for r in result if r.get("brokers"))
-        print(f"  [分點] {ok}/{len(result)} 檔有分點資料")
-
-        # 抓取 mainprofit 均買/均賣（登入一次，循序抓取）
-        codes_with_brokers = [r["code"] for r in result if r.get("brokers")]
-        if codes_with_brokers:
-            mp_map = fetch_all_mainprofit_avgs(codes_with_brokers)
-            for row in result:
-                mp = mp_map.get(row["code"], {})
-                for b in row.get("brokers", []):
-                    avgs = mp.get(b["name"])
-                    if avgs and (avgs[0] > 0 or avgs[1] > 0):
-                        b["buy_avg"]  = avgs[0]
-                        b["sell_avg"] = avgs[1]
-                    else:
-                        b["buy_avg"]  = b["avg"]
-                        b["sell_avg"] = b["avg"]
-            ok2 = sum(1 for c in codes_with_brokers if mp_map.get(c))
-            print(f"  [主力] {ok2}/{len(codes_with_brokers)} 檔取得均買/均賣")
+        print(f"  [HiStock] {ok}/{len(result)} 檔有分點資料")
 
     return result
 
