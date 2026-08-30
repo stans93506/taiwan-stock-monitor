@@ -438,17 +438,16 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
     import time as _time
     from playwright.sync_api import sync_playwright
     results = {c: {"brokers": [], "mainprofit": {}} for c in codes}
-    if not codes or not _histock_creds()[0]:
+    if not codes:
         return results
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=_MP_ARGS)
         ctx = browser.new_context(user_agent=_MP_UA)
         try:
             page = ctx.new_page()
-            if not _histock_login(page):
-                print("  [HiStock] 登入失敗")
-                return results
-            print(f"  [HiStock] 登入成功，開始抓取 {len(codes)} 檔分點+均價...")
+            # 嘗試登入（分點資料不強制需要登入，但登入後可補均買均賣）
+            logged_in = _histock_login(page) if _histock_creds()[0] else False
+            print(f"  [HiStock] 登入{'成功' if logged_in else '失敗（仍繼續抓分點）'}，開始抓取 {len(codes)} 檔...")
             for i, code in enumerate(codes, 1):
                 try:
                     # 分點買賣超
