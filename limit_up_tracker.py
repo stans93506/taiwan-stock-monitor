@@ -387,21 +387,21 @@ def _histock_login(page) -> bool:
     email, password = _histock_creds()
     if not email or not password:
         return False
-    page.goto("https://histock.tw/member/login.aspx", wait_until="load")
-    # 等待表單渲染（SPA 需要 JS 執行完）
-    page.wait_for_selector('input[type="email"]', timeout=15_000)
+    page.goto("https://histock.tw/member/login.aspx", wait_until="domcontentloaded")
+    # 等待表單渲染
+    try:
+        page.wait_for_selector('input[type="email"]', timeout=15_000)
+    except Exception:
+        return False
     page.fill('input[type="email"]', email)
     page.fill('input[type="password"]', password)
     page.click('button[type="submit"]')
-    # 等待跳轉離開登入頁（最多 20 秒）
-    try:
-        page.wait_for_url(lambda u: "login" not in u and "auth." not in u,
-                          timeout=20_000)
-        return True
-    except Exception:
-        # 再確認一次：看 URL 是否已離開登入頁
-        _t.sleep(3)
-        return "login" not in page.url and "auth." not in page.url
+    _t.sleep(3)
+    # 成功判斷：URL 離開 login 頁 或 出現登入後的 UI 元素（頭像、登出按鈕等）
+    url_ok = "login.aspx" not in page.url
+    # 找登出/會員按鈕
+    ui_ok = bool(page.query_selector('a[href*="logout"], a[href*="member"], .user-info, #member-btn'))
+    return url_ok or ui_ok
 
 
 _MP_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
