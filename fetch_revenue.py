@@ -8201,14 +8201,15 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
             if _lu_rows:
                 limit_up_tracker.save_limit_up_cache(_lu_date, _lu_rows)
 
-        # 補抓：若最新快取缺少分點資料，重新抓（不限時間，HiStock 更新後即可補上）
+        # 補抓：若最新快取有任何一支缺分點資料，重新抓
         _lu_avail_check, _lu_hist_check = limit_up_tracker.load_limit_up_history()
         if _lu_avail_check:
             _latest_key = _lu_avail_check[0]["key"]   # 最近一個交易日
             _latest_rows = _lu_hist_check.get(_latest_key, [])
-            _has_brokers = any(r.get("brokers") for r in _latest_rows)
-            if _latest_rows and not _has_brokers:
-                print(f"  [漲停] {_latest_key} 缺分點資料，補抓中...")
+            _missing_brokers = any(not r.get("brokers") for r in _latest_rows)
+            if _latest_rows and _missing_brokers:
+                _have = sum(1 for r in _latest_rows if r.get("brokers"))
+                print(f"  [漲停] {_latest_key} 有 {len(_latest_rows) - _have}/{len(_latest_rows)} 支缺分點，補抓中...")
                 _refetch = limit_up_tracker.fetch_limit_up(_latest_key)
                 if _refetch and any(r.get("brokers") for r in _refetch):
                     limit_up_tracker.save_limit_up_cache(_latest_key, _refetch)
