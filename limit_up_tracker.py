@@ -629,12 +629,20 @@ def save_limit_up_cache(date_str: str, rows: list) -> None:
             # 舊資料已有分點、新資料沒有 → 保留（分點是後續補抓，不能覆蓋掉）
             if old_has_brokers and not new_has_brokers:
                 return
-            # 舊資料有上櫃、新資料沒有 → 保留舊的，避免 TPEx API 日期不符誤刪
+            # 舊資料有上櫃、新資料沒有（TPEx 週末/日期不符）
             old_has_tpex = any(r.get("market") == "上櫃" for r in existing)
             new_has_tpex = any(r.get("market") == "上櫃" for r in rows)
             if old_has_tpex and not new_has_tpex:
-                print(f"  [漲停] 新資料缺少上櫃（舊有），保留舊快取")
-                return
+                if new_has_brokers and not old_has_brokers:
+                    # 補抓到分點 → 保留舊的上櫃 rows 合併（不重複）再存
+                    new_codes = {r["code"] for r in rows}
+                    old_tpex = [r for r in existing if r.get("market") == "上櫃"
+                                and r["code"] not in new_codes]
+                    rows = rows + old_tpex
+                    print(f"  [漲停] 合併舊上櫃 {len(old_tpex)} 檔後存檔")
+                else:
+                    print(f"  [漲停] 新資料缺少上櫃（舊有），保留舊快取")
+                    return
         except Exception:
             pass
     path.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
