@@ -618,7 +618,7 @@ def fetch_limit_up(date_str: str = None) -> list:
 # ── 快取存取 ──────────────────────────────────────────────────────────
 def save_limit_up_cache(date_str: str, rows: list) -> None:
     if not rows:
-        return  # 非交易日或空結果，不建立快取
+        return
     CACHE_DIR.mkdir(exist_ok=True)
     path = CACHE_DIR / f"{date_str}.json"
     if path.exists():
@@ -626,23 +626,33 @@ def save_limit_up_cache(date_str: str, rows: list) -> None:
             existing = json.loads(path.read_text(encoding="utf-8"))
             new_has_brokers = any(r.get("brokers") for r in rows)
             old_has_brokers = any(r.get("brokers") for r in existing)
-            # 舊資料已有分點、新資料沒有 → 保留（分點是後續補抓，不能覆蓋掉）
+
+            # 唯一禁止覆蓋的情況：舊有分點、新沒有（避免回退）
             if old_has_brokers and not new_has_brokers:
                 return
-            # 舊資料有上櫃、新資料沒有（TPEx 週末/日期不符）
-            old_has_tpex = any(r.get("market") == "上櫃" for r in existing)
-            new_has_tpex = any(r.get("market") == "上櫃" for r in rows)
-            if old_has_tpex and not new_has_tpex:
-                if new_has_brokers and not old_has_brokers:
-                    # 補抓到分點 → 保留舊的上櫃 rows 合併（不重複）再存
-                    new_codes = {r["code"] for r in rows}
-                    old_tpex = [r for r in existing if r.get("market") == "上櫃"
-                                and r["code"] not in new_codes]
-                    rows = rows + old_tpex
-                    print(f"  [漲停] 合併舊上櫃 {len(old_tpex)} 檔後存檔")
-                else:
-                    print(f"  [漲停] 新資料缺少上櫃（舊有），保留舊快取")
-                    return
+
+            # 合併舊資料中新資料缺少的部分
+            old_by_code = {r["code"]: r for r in existing}
+            new_codes = {r["code"] for r in rows}
+
+            # 1. 補上舊有的上櫃（TPEx 週末日期不符時新資料可能缺）
+            missing_tpex = [r for r in existing
+                            if r.get("market") == "上櫃" and r["code"] not in new_codes]
+            if missing_tpex:
+                rows = rows + missing_tpex
+                print(f"  [漲停] 補入舊上櫃 {len(missing_tpex)} 檔")
+
+            # 2. 對新資料中無分點的股票，從舊資料補分點
+            if new_has_brokers:
+                filled = 0
+                for r in rows:
+                    if not r.get("brokers"):
+                        old_b = old_by_code.get(r["code"], {}).get("brokers", [])
+                        if old_b:
+                            r["brokers"] = old_b
+                            filled += 1
+                if filled:
+                    print(f"  [漲停] 從舊資料補入 {filled} 檔分點")
         except Exception:
             pass
     path.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
