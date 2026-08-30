@@ -336,7 +336,8 @@ def _fetch_tpex_institutional(date_str: str) -> dict:
 def _parse_branch_html(html: str) -> list:
     """從 branch.aspx HTML 解析分點資料，回傳 [{name,buy,sell,net,avg,side}]。"""
     result = []
-    m = re.search(r'class="tb-stock tbChip[^"]*"(.*?)</table>', html, re.DOTALL)
+    # 支援多種 class 組合（tbChip tb-stock / tb-stock tbChip 等）
+    m = re.search(r'<table[^>]*class="[^"]*(?:tbChip|tb-stock)[^"]*"[^>]*>(.*?)</table>', html, re.DOTALL)
     if not m:
         return result
     table_html = m.group(1)
@@ -453,13 +454,24 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
                     # 分點買賣超
                     branch_url = (f"https://histock.tw/stock/branch.aspx"
                                   f"?no={code}&from={date_str}&to={date_str}")
-                    page.goto(branch_url, wait_until="networkidle", timeout=40_000)
-                    # 等資料表出現（JS 動態載入）
+                    page.goto(branch_url, wait_until="domcontentloaded", timeout=30_000)
+                    # 等分點表格出現（JS 動態載入）
                     try:
-                        page.wait_for_selector(".tb-stock", timeout=10_000)
+                        page.wait_for_selector(".tb-stock.tbChip, table.tb-stock", timeout=15_000)
                     except Exception:
                         pass
+                    _time.sleep(1)
                     brokers = _parse_branch_html(page.content())
+                    # 若抓不到，嘗試點選查詢按鈕重新觸發
+                    if not brokers:
+                        try:
+                            btn = page.query_selector("input[type=button][value*=查詢], button:has-text('查詢')")
+                            if btn:
+                                btn.click()
+                                page.wait_for_selector(".tb-stock.tbChip, table.tb-stock", timeout=10_000)
+                                brokers = _parse_branch_html(page.content())
+                        except Exception:
+                            pass
                     results[code]["brokers"] = brokers
 
                     # 均買/均賣（只在有分點時抓）
