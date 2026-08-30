@@ -453,7 +453,12 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
                     # 分點買賣超
                     branch_url = (f"https://histock.tw/stock/branch.aspx"
                                   f"?no={code}&from={date_str}&to={date_str}")
-                    page.goto(branch_url, wait_until="load", timeout=30_000)
+                    page.goto(branch_url, wait_until="networkidle", timeout=40_000)
+                    # 等資料表出現（JS 動態載入）
+                    try:
+                        page.wait_for_selector(".tb-stock", timeout=10_000)
+                    except Exception:
+                        pass
                     brokers = _parse_branch_html(page.content())
                     results[code]["brokers"] = brokers
 
