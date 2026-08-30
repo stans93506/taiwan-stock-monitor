@@ -602,12 +602,10 @@ def fetch_limit_up(date_str: str = None) -> list:
             mp = hs_data[code]["mainprofit"]
             for b in brokers:
                 avgs = mp.get(b["name"])
-                if avgs and (avgs[0] > 0 or avgs[1] > 0):
-                    b["buy_avg"]  = avgs[0]
-                    b["sell_avg"] = avgs[1]
-                else:
-                    b["buy_avg"]  = b["avg"]
-                    b["sell_avg"] = b["avg"]
+                buy_avg  = (avgs[0] or 0) if avgs else 0
+                sell_avg = (avgs[1] or 0) if avgs else 0
+                b["buy_avg"]  = buy_avg  if buy_avg  > 0 else b["avg"]
+                b["sell_avg"] = sell_avg if sell_avg > 0 else b["avg"]
             row["brokers"] = brokers
         ok = sum(1 for r in result if r.get("brokers"))
         print(f"  [HiStock] {ok}/{len(result)} 檔有分點資料")
