@@ -749,7 +749,7 @@ def generate_limit_up_html(avail_dates: list, history: dict) -> str:
   <div id="luSectorTags" style="padding:4px 10px 6px;display:flex;flex-wrap:wrap;gap:4px;border-top:1px solid #222"></div>
 </div>
 <div style="overflow-x:auto">
-<table class="table table-dark table-hover table-sm mb-0" style="font-size:.85rem">
+<table class="table table-dark table-hover table-sm mb-0" style="font-size:1rem">
   <thead>
     <tr>
       <th onclick="luSort('market')" style="cursor:pointer">市場</th>
