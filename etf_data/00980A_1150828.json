@@ -121,15 +121,15 @@
       "weight": 1.77
     },
     {
-      "code": "3443",
-      "name": "創意電子",
-      "shares": 59000,
-      "weight": 1.74
-    },
-    {
       "code": "2327",
       "name": "國巨",
       "shares": 595000,
+      "weight": 1.74
+    },
+    {
+      "code": "3443",
+      "name": "創意電子",
+      "shares": 59000,
       "weight": 1.74
     },
     {
@@ -307,5 +307,5 @@
       "weight": 0.3
     }
   ],
-  "fetch_time": "14:42"
+  "fetch_time": "15:11"
 }
