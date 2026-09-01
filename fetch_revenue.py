@@ -368,11 +368,13 @@ def fetch_revenue_moneydj(roc_year: int, month: int,
     month_str = str(month)
     PAT = re.compile(
         r'^(.+?)\s+' + re.escape(year_str) + r'年' + re.escape(month_str) +
-        r'月(?:合併)?營收(-?[\d.,]+)(億|萬|千|百萬)(?:[^年]*年(增|減)([\d.,]+)%)?'
+        r'月(?:合併)?營收(-?[\d.,]+)(億|萬|千|百萬|元)?(?:[^年]*年(增|減)([\d.,]+)%)?'
     )
 
-    def _to_thousand(amt: str, unit: str) -> float:
+    def _to_thousand(amt: str, unit: str | None) -> float:
         v = float(amt.replace(",", ""))
+        if not unit or unit == "元":
+            return v / 1_000 if v >= 1_000 else 0   # 0 營收直接回傳 0
         return {"億": v * 100_000, "萬": v * 10, "千": v, "百萬": v * 1_000}.get(unit, v)
 
     def _mkt(code: str) -> str:
