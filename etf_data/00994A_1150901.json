@@ -97,15 +97,15 @@
       "weight": 2.22
     },
     {
-      "code": "1303",
-      "name": "南亞",
-      "shares": 460000,
-      "weight": 2.18
-    },
-    {
       "code": "2345",
       "name": "智邦",
       "shares": 49000,
+      "weight": 2.18
+    },
+    {
+      "code": "1303",
+      "name": "南亞",
+      "shares": 460000,
       "weight": 2.18
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.01
     }
   ],
-  "fetch_time": "14:52"
+  "fetch_time": "15:18"
 }
