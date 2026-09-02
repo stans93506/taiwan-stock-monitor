@@ -1,124 +1,124 @@
 {
   "etf_code": "00981A",
   "etf_name": "主動統一台股增長",
-  "date": "115/09/01",
-  "nav_per_unit": 30.51,
-  "nav_total": 291190641951.0,
-  "units": 9543209000.0,
+  "date": "115/09/02",
+  "nav_per_unit": 29.73,
+  "nav_total": 282197108900.0,
+  "units": 9491209000.0,
   "holdings": [
     {
       "code": "2330",
       "name": "台積電",
       "shares": 11014000,
-      "weight": 9.23
+      "weight": 9.31
     },
     {
       "code": "2383",
       "name": "台光電",
-      "shares": 4757000,
-      "weight": 9.21
+      "shares": 4750000,
+      "weight": 9.17
     },
     {
       "code": "2454",
       "name": "聯發科",
       "shares": 5088000,
-      "weight": 7.54
-    },
-    {
-      "code": "3017",
-      "name": "奇鋐",
-      "shares": 5949000,
-      "weight": 6.97
+      "weight": 7.71
     },
     {
       "code": "3037",
       "name": "欣興",
       "shares": 20300000,
-      "weight": 6.77
+      "weight": 7.0
+    },
+    {
+      "code": "3017",
+      "name": "奇鋐",
+      "shares": 5949000,
+      "weight": 6.98
     },
     {
       "code": "6669",
       "name": "緯穎",
-      "shares": 2176000,
-      "weight": 5.83
-    },
-    {
-      "code": "2345",
-      "name": "智邦",
-      "shares": 6464000,
-      "weight": 4.89
-    },
-    {
-      "code": "2327",
-      "name": "國巨*",
-      "shares": 24987000,
-      "weight": 4.87
+      "shares": 6490561,
+      "weight": 6.0
     },
     {
       "code": "3653",
       "name": "健策",
       "shares": 2397000,
-      "weight": 4.84
+      "weight": 4.9
     },
     {
-      "code": "2308",
-      "name": "台達電",
-      "shares": 7240000,
-      "weight": 4.64
+      "code": "2345",
+      "name": "智邦",
+      "shares": 6464000,
+      "weight": 4.9
+    },
+    {
+      "code": "2327",
+      "name": "國巨*",
+      "shares": 24987000,
+      "weight": 4.78
     },
     {
       "code": "6223",
       "name": "旺矽",
       "shares": 2476000,
-      "weight": 4.6
+      "weight": 4.64
     },
     {
-      "code": "2303",
-      "name": "聯電",
-      "shares": 89118000,
-      "weight": 4.06
+      "code": "2308",
+      "name": "台達電",
+      "shares": 7240000,
+      "weight": 4.44
     },
     {
       "code": "8046",
       "name": "南電",
       "shares": 9474000,
-      "weight": 3.99
+      "weight": 4.03
     },
     {
-      "code": "3711",
-      "name": "日月光投控",
-      "shares": 18679000,
-      "weight": 3.91
+      "code": "2303",
+      "name": "聯電",
+      "shares": 89118000,
+      "weight": 3.98
     },
     {
       "code": "3665",
       "name": "貿聯-KY",
       "shares": 4591848,
-      "weight": 3.65
+      "weight": 3.53
+    },
+    {
+      "code": "3711",
+      "name": "日月光投控",
+      "shares": 16811000,
+      "weight": 3.51
     },
     {
       "code": "6274",
       "name": "台燿",
       "shares": 5398000,
-      "weight": 2.69
+      "weight": 2.7
+    },
+    {
+      "code": "5274",
+      "name": "信驊",
+      "shares": 207900,
+      "weight": 1.31
     },
     {
       "code": "6805",
       "name": "富世達",
       "shares": 1731000,
-      "weight": 1.36
+      "weight": 1.29
     },
     {
       "code": "2449",
       "name": "京元電子",
       "shares": 12818450,
       "weight": 1.23
-    },
-    {
-      "code": "5274",
-      "name": "信驊",
-      "shares": 207900,
-      "weight": 1.22
     },
     {
       "code": "8210",
@@ -130,7 +130,19 @@
       "code": "3443",
       "name": "創意",
       "shares": 325000,
-      "weight": 0.67
+      "weight": 0.68
+    },
+    {
+      "code": "6510",
+      "name": "精測",
+      "shares": 561000,
+      "weight": 0.68
+    },
+    {
+      "code": "4979",
+      "name": "華星光",
+      "shares": 2838000,
+      "weight": 0.63
     },
     {
       "code": "2368",
@@ -139,40 +151,28 @@
       "weight": 0.61
     },
     {
-      "code": "4979",
-      "name": "華星光",
-      "shares": 2838000,
-      "weight": 0.58
-    },
-    {
       "code": "8996",
       "name": "高力",
       "shares": 1300000,
-      "weight": 0.52
-    },
-    {
-      "code": "6510",
-      "name": "精測",
-      "shares": 477000,
-      "weight": 0.51
+      "weight": 0.58
     },
     {
       "code": "3264",
       "name": "欣銓",
-      "shares": 5916000,
-      "weight": 0.48
+      "shares": 5028000,
+      "weight": 0.42
     },
     {
       "code": "4958",
       "name": "臻鼎-KY",
       "shares": 2157000,
-      "weight": 0.4
+      "weight": 0.39
     },
     {
       "code": "6278",
       "name": "台表科",
       "shares": 3248000,
-      "weight": 0.22
+      "weight": 0.23
     },
     {
       "code": "6271",
@@ -249,7 +249,7 @@
     {
       "code": "6187",
       "name": "萬潤",
-      "shares": 8000,
+      "shares": 1000,
       "weight": 0.0
     },
     {
@@ -307,5 +307,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "16:22"
+  "fetch_time": "16:46"
 }
