@@ -8272,6 +8272,7 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
             _m = str(_rr.get("市場", "")).strip()
             if _c and _c.isdigit():
                 _code_market[_c] = _m
+    _rev_archive = load_rev_archive()
     _rev_hist = ensure_rev_hist(_code_market, rev_archive=_rev_archive)
 
     # 月營收補算：填充仍缺 上季營收 的公司（t163sb15 失敗備案）
@@ -8360,7 +8361,6 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         print(f"  qtr_cum_cache 已更新（{len(_qtr_cum_cache)} 家）")
 
     _news_date_str = (news_fetch_time or datetime.now()).strftime("%Y/%m/%d %H:%M 更新")
-    _rev_archive = load_rev_archive()
     html = generate_html(df_rev, df_qtr, roc_year, month, prev_data, df_trs, df_monthly,
                          news_analysis=news_analysis, news_items=news_items,
                          events=events, news_date=_news_date_str,
