@@ -649,10 +649,10 @@ def fetch_rev_hist_single(code: str, typek: str = "sii") -> list:
         return []
 
 
-def ensure_rev_hist(code_market_map: dict) -> dict:
+def ensure_rev_hist(code_market_map: dict, rev_archive: dict = None) -> dict:
     """確保目標股票有歷史月營收 cache（單股 API，一支一次 request）。
     code_market_map: {code: market}，例如 {"6538": "上市"}。
-    新代碼補抓；已有 cache 但最新月份落後上個月以上者也補抓（修復漏抓月份）。
+    新代碼補抓；archive 也沒有的月份才去 FinMind 補抓。
     """
     import time as _t
     cache = load_rev_hist_cache()
@@ -668,8 +668,18 @@ def ensure_rev_hist(code_market_map: dict) -> dict:
         data = entry.get("data", [])
         return max((p["ym"] for p in data), default="")
 
+    # archive 已涵蓋的月份集合（per code）
+    _arch = rev_archive or {}
+    def _arch_has_prev(code):
+        for ym, rows in _arch.items():
+            if ym >= _prev_ym:
+                if any(str(r.get("股票代碼", "")).strip() == code for r in rows):
+                    return True
+        return False
+
     need = [(c, m) for c, m in code_market_map.items()
-            if c not in cache or _latest_ym(cache[c]) < _prev_ym]
+            if (c not in cache or _latest_ym(cache[c]) < _prev_ym)
+            and not _arch_has_prev(c)]
     if not need:
         print(f"  [歷史營收] {len(code_market_map)} 支全部已有 cache")
         return cache
@@ -8262,7 +8272,7 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
             _m = str(_rr.get("市場", "")).strip()
             if _c and _c.isdigit():
                 _code_market[_c] = _m
-    _rev_hist = ensure_rev_hist(_code_market)
+    _rev_hist = ensure_rev_hist(_code_market, rev_archive=_rev_archive)
 
     # 月營收補算：填充仍缺 上季營收 的公司（t163sb15 失敗備案）
     _hist_filled = _fill_rev_from_hist_inline(prev_data, _rev_hist)
