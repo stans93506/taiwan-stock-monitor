@@ -5989,6 +5989,13 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
     # ── 建立歷史月營收 JS 資料（供點擊展開用）──────────────────────────
     _hist = rev_hist_cache or {}   # {code: {data:[{ym,r,y,m,c}...]}}
     cur_ym = f"{roc_year}{month:02d}"
+    # 預先把封存月建成 {code → {ym → row}} 供快速查找
+    _arch_by_code: dict = {}
+    for _arch_ym, _arch_rows in (rev_archive or {}).items():
+        for _arow in _arch_rows:
+            _ac = str(_arow.get("股票代碼", "")).strip()
+            if _ac:
+                _arch_by_code.setdefault(_ac, {})[_arch_ym] = _arow
     rev_hist_obj: dict = {}
     if not df_rev.empty:
         for _, _r in df_rev.iterrows():
@@ -5998,6 +6005,17 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                 continue
             # 從 per-code cache 取歷史資料
             _pts = list(_hist.get(_code, {}).get("data", []))
+            # 補入封存月（archive）中尚未出現在 _pts 的月份
+            for _arch_ym, _arow in _arch_by_code.get(_code, {}).items():
+                if not any(p["ym"] == _arch_ym for p in _pts):
+                    def _fn(v):
+                        try: return float(v) if v is not None else None
+                        except Exception: return None
+                    _pts.append({"ym": _arch_ym,
+                                 "r": _fn(_arow.get("當月營收")),
+                                 "y": _fn(_arow.get("年增率")),
+                                 "m": None,
+                                 "c": _fn(_arow.get("累計增減"))})
             # 補入當月（rev_cache，MOPS 歷史查詢通常不含最新尚未入庫月份）
             _cur_rev = _r.get("當月營收")
             _cur_yoy = _r.get("年增率")
