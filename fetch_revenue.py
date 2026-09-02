@@ -649,19 +649,42 @@ def fetch_rev_hist_single(code: str, typek: str = "sii") -> list:
         return []
 
 
-def ensure_rev_hist(code_market_map: dict) -> dict:
+def ensure_rev_hist(code_market_map: dict, rev_archive: dict = None) -> dict:
     """確保目標股票有歷史月營收 cache（單股 API，一支一次 request）。
     code_market_map: {code: market}，例如 {"6538": "上市"}。
-    已有 cache 的直接跳過；新代碼才補抓。
+    新代碼補抓；archive 也沒有的月份才去 FinMind 補抓。
     """
     import time as _t
     cache = load_rev_hist_cache()
     today_s = datetime.now().strftime("%Y%m%d")
 
-    need = [(c, m) for c, m in code_market_map.items() if c not in cache]
+    # 計算「上個月」的 ym 字串（民國）
+    _now = datetime.now()
+    _prev_m = _now.month - 1 or 12
+    _prev_y = _now.year - 1911 - (1 if _now.month == 1 else 0)
+    _prev_ym = f"{_prev_y}{_prev_m:02d}"   # e.g. "11508"
+
+    def _latest_ym(entry):
+        data = entry.get("data", [])
+        return max((p["ym"] for p in data), default="")
+
+    # archive 已涵蓋的月份集合（per code）
+    _arch = rev_archive or {}
+    def _arch_has_prev(code):
+        for ym, rows in _arch.items():
+            if ym >= _prev_ym:
+                if any(str(r.get("股票代碼", "")).strip() == code for r in rows):
+                    return True
+        return False
+
+    need = [(c, m) for c, m in code_market_map.items()
+            if (c not in cache or _latest_ym(cache[c]) < _prev_ym)
+            and not _arch_has_prev(c)]
     if not need:
         print(f"  [歷史營收] {len(code_market_map)} 支全部已有 cache")
         return cache
+    # 每次最多補抓 80 支，避免 GitHub Actions 超時；多次執行自然補齊
+    need = need[:80]
 
     print(f"  [歷史營收] 補抓 {len(need)} 支...")
     for code, market in need:
@@ -5989,6 +6012,13 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
     # ── 建立歷史月營收 JS 資料（供點擊展開用）──────────────────────────
     _hist = rev_hist_cache or {}   # {code: {data:[{ym,r,y,m,c}...]}}
     cur_ym = f"{roc_year}{month:02d}"
+    # 預先把封存月建成 {code → {ym → row}} 供快速查找
+    _arch_by_code: dict = {}
+    for _arch_ym, _arch_rows in (rev_archive or {}).items():
+        for _arow in _arch_rows:
+            _ac = str(_arow.get("股票代碼", "")).strip()
+            if _ac:
+                _arch_by_code.setdefault(_ac, {})[_arch_ym] = _arow
     rev_hist_obj: dict = {}
     if not df_rev.empty:
         for _, _r in df_rev.iterrows():
@@ -5998,6 +6028,17 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                 continue
             # 從 per-code cache 取歷史資料
             _pts = list(_hist.get(_code, {}).get("data", []))
+            # 補入封存月（archive）中尚未出現在 _pts 的月份
+            for _arch_ym, _arow in _arch_by_code.get(_code, {}).items():
+                if not any(p["ym"] == _arch_ym for p in _pts):
+                    def _fn(v):
+                        try: return float(v) if v is not None else None
+                        except Exception: return None
+                    _pts.append({"ym": _arch_ym,
+                                 "r": _fn(_arow.get("當月營收")),
+                                 "y": _fn(_arow.get("年增率")),
+                                 "m": None,
+                                 "c": _fn(_arow.get("累計增減"))})
             # 補入當月（rev_cache，MOPS 歷史查詢通常不含最新尚未入庫月份）
             _cur_rev = _r.get("當月營收")
             _cur_yoy = _r.get("年增率")
@@ -8231,7 +8272,7 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
             _m = str(_rr.get("市場", "")).strip()
             if _c and _c.isdigit():
                 _code_market[_c] = _m
-    _rev_hist = ensure_rev_hist(_code_market)
+    _rev_hist = ensure_rev_hist(_code_market, rev_archive=_rev_archive)
 
     # 月營收補算：填充仍缺 上季營收 的公司（t163sb15 失敗備案）
     _hist_filled = _fill_rev_from_hist_inline(prev_data, _rev_hist)
