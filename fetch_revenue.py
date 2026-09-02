@@ -652,16 +652,29 @@ def fetch_rev_hist_single(code: str, typek: str = "sii") -> list:
 def ensure_rev_hist(code_market_map: dict) -> dict:
     """確保目標股票有歷史月營收 cache（單股 API，一支一次 request）。
     code_market_map: {code: market}，例如 {"6538": "上市"}。
-    已有 cache 的直接跳過；新代碼才補抓。
+    新代碼補抓；已有 cache 但最新月份落後上個月以上者也補抓（修復漏抓月份）。
     """
     import time as _t
     cache = load_rev_hist_cache()
     today_s = datetime.now().strftime("%Y%m%d")
 
-    need = [(c, m) for c, m in code_market_map.items() if c not in cache]
+    # 計算「上個月」的 ym 字串（民國）
+    _now = datetime.now()
+    _prev_m = _now.month - 1 or 12
+    _prev_y = _now.year - 1911 - (1 if _now.month == 1 else 0)
+    _prev_ym = f"{_prev_y}{_prev_m:02d}"   # e.g. "11508"
+
+    def _latest_ym(entry):
+        data = entry.get("data", [])
+        return max((p["ym"] for p in data), default="")
+
+    need = [(c, m) for c, m in code_market_map.items()
+            if c not in cache or _latest_ym(cache[c]) < _prev_ym]
     if not need:
         print(f"  [歷史營收] {len(code_market_map)} 支全部已有 cache")
         return cache
+    # 每次最多補抓 80 支，避免 GitHub Actions 超時；多次執行自然補齊
+    need = need[:80]
 
     print(f"  [歷史營收] 補抓 {len(need)} 支...")
     for code, market in need:
