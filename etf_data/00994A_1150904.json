@@ -211,15 +211,15 @@
       "weight": 0.38
     },
     {
-      "code": "2368",
-      "name": "金像電",
-      "shares": 16000,
-      "weight": 0.36
-    },
-    {
       "code": "3661",
       "name": "世芯-KY",
       "shares": 4000,
+      "weight": 0.36
+    },
+    {
+      "code": "2368",
+      "name": "金像電",
+      "shares": 16000,
       "weight": 0.36
     },
     {
@@ -265,5 +265,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "17:36"
+  "fetch_time": "18:05"
 }
