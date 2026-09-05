@@ -475,21 +475,25 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
                                   f"?no={code}&from={date_str}&to={date_str}")
                     brokers = []
 
-                    # 優先用 ScraperAPI（繞過 Cloudflare）
+                    # 優先用 ScraperAPI（繞過 Cloudflare），失敗最多重試 2 次
                     _scraper_key = os.environ.get("SCRAPERAPI_KEY", "")
                     if _scraper_key and not brokers:
-                        try:
-                            import urllib.parse as _up
-                            _sa_url = (f"http://api.scraperapi.com?"
-                                       f"api_key={_scraper_key}&render=true"
-                                       f"&url={_up.quote(branch_url, safe='')}")
-                            import urllib.request as _ur
-                            with _ur.urlopen(_sa_url, timeout=60) as _r:
-                                _html = _r.read().decode("utf-8", errors="replace")
-                            if "Just a moment" not in _html:
-                                brokers = _parse_branch_html(_html)
-                        except Exception as _e:
-                            print(f"  [HiStock] ScraperAPI 失敗: {_e}")
+                        import urllib.parse as _up
+                        import urllib.request as _ur
+                        _sa_url = (f"http://api.scraperapi.com?"
+                                   f"api_key={_scraper_key}&render=true"
+                                   f"&url={_up.quote(branch_url, safe='')}")
+                        for _attempt in range(3):
+                            try:
+                                _time.sleep(_attempt * 3)
+                                with _ur.urlopen(_sa_url, timeout=90) as _r:
+                                    _html = _r.read().decode("utf-8", errors="replace")
+                                if "Just a moment" not in _html:
+                                    brokers = _parse_branch_html(_html)
+                                break
+                            except Exception as _e:
+                                if _attempt == 2:
+                                    print(f"  [HiStock] ScraperAPI 失敗: {_e}")
 
                     # ScraperAPI 失敗時用 curl_cffi
                     if cf_session and not brokers:
