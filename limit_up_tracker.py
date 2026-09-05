@@ -479,6 +479,9 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
                         results[code]["mainprofit"] = _parse_mainprofit_html(mp_html)
 
                     print(f"  [HiStock] [{i}/{len(codes)}] {code}: {len(brokers)} 分點")
+                    if not brokers and i == 1:
+                        _html = page.content()
+                        print(f"  [HiStock] debug HTML前500: {_html[:500]}")
                 except Exception as e:
                     print(f"  [HiStock] [{i}/{len(codes)}] {code}: {e}")
                 _time.sleep(1)
