@@ -433,14 +433,16 @@ def _mainprofit_page_html(page, code: str) -> str:
 def fetch_all_histock(codes: list, date_str: str) -> dict:
     """
     登入一次，批量抓取所有股票的分點買賣超 + 均買/均賣。
+    登入用 Playwright 取得 cookies（含 cf_clearance），分點頁改用 curl_cffi 模擬 Chrome TLS 繞過 Cloudflare。
     回傳 {code: {'brokers': [...], 'mainprofit': {broker_name: (buy_avg, sell_avg)}}}
     """
     import time as _time
     from playwright.sync_api import sync_playwright
     try:
-        from playwright_stealth import stealth_sync as _stealth
+        from curl_cffi import requests as _cf_req
+        _curl_ok = True
     except ImportError:
-        _stealth = None
+        _curl_ok = False
     results = {c: {"brokers": [], "mainprofit": {}} for c in codes}
     if not codes:
         return results
@@ -449,45 +451,69 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
         ctx = browser.new_context(user_agent=_MP_UA)
         try:
             page = ctx.new_page()
-            if _stealth:
-                _stealth(page)
-            # 嘗試登入（分點資料不強制需要登入，但登入後可補均買均賣）
+            # 嘗試登入（取得 cf_clearance + 登入 session）
             logged_in = _histock_login(page) if _histock_creds()[0] else False
             print(f"  [HiStock] 登入{'成功' if logged_in else '失敗（仍繼續抓分點）'}，開始抓取 {len(codes)} 檔...")
+
+            # 從 Playwright 取出 cookies，供 curl_cffi 使用
+            cf_session = None
+            if _curl_ok:
+                try:
+                    pw_cookies = ctx.cookies()
+                    cf_session = _cf_req.Session(impersonate="chrome124")
+                    for c in pw_cookies:
+                        cf_session.cookies.set(c["name"], c["value"], domain=c.get("domain", "histock.tw"))
+                    cf_session.headers.update({"User-Agent": _MP_UA,
+                                               "Referer": "https://histock.tw/"})
+                except Exception as _e:
+                    print(f"  [HiStock] curl_cffi session 建立失敗: {_e}")
+                    cf_session = None
+
             for i, code in enumerate(codes, 1):
                 try:
-                    # 分點買賣超
                     branch_url = (f"https://histock.tw/stock/branch.aspx"
                                   f"?no={code}&from={date_str}&to={date_str}")
-                    page.goto(branch_url, wait_until="domcontentloaded", timeout=30_000)
-                    # 等分點表格出現（JS 動態載入）
-                    try:
-                        page.wait_for_selector(".tb-stock.tbChip, table.tb-stock", timeout=15_000)
-                    except Exception:
-                        pass
-                    _time.sleep(1)
-                    brokers = _parse_branch_html(page.content())
-                    # 若抓不到，嘗試點選查詢按鈕重新觸發
-                    if not brokers:
+                    brokers = []
+
+                    # 優先用 curl_cffi（模擬 Chrome TLS 指紋繞過 Cloudflare）
+                    if cf_session:
                         try:
-                            btn = page.query_selector("input[type=button][value*=查詢], button:has-text('查詢')")
-                            if btn:
-                                btn.click()
-                                page.wait_for_selector(".tb-stock.tbChip, table.tb-stock", timeout=10_000)
-                                brokers = _parse_branch_html(page.content())
+                            resp = cf_session.get(branch_url, timeout=20)
+                            if "Just a moment" not in resp.text:
+                                brokers = _parse_branch_html(resp.text)
                         except Exception:
                             pass
+
+                    # curl_cffi 失敗時 fallback 到 Playwright
+                    if not brokers:
+                        page.goto(branch_url, wait_until="domcontentloaded", timeout=30_000)
+                        try:
+                            page.wait_for_selector(".tb-stock.tbChip, table.tb-stock", timeout=15_000)
+                        except Exception:
+                            pass
+                        _time.sleep(1)
+                        brokers = _parse_branch_html(page.content())
+                        if not brokers:
+                            try:
+                                btn = page.query_selector("input[type=button][value*=查詢], button:has-text('查詢')")
+                                if btn:
+                                    btn.click()
+                                    page.wait_for_selector(".tb-stock.tbChip, table.tb-stock", timeout=10_000)
+                                    brokers = _parse_branch_html(page.content())
+                            except Exception:
+                                pass
+                        if not brokers and i == 1:
+                            _html = page.content()
+                            print(f"  [HiStock] debug HTML前500: {_html[:500]}")
+
                     results[code]["brokers"] = brokers
 
-                    # 均買/均賣（只在有分點時抓）
+                    # 均買/均賣（只在有分點時抓，走 Playwright）
                     if brokers:
                         mp_html = _mainprofit_page_html(page, code)
                         results[code]["mainprofit"] = _parse_mainprofit_html(mp_html)
 
                     print(f"  [HiStock] [{i}/{len(codes)}] {code}: {len(brokers)} 分點")
-                    if not brokers and i == 1:
-                        _html = page.content()
-                        print(f"  [HiStock] debug HTML前500: {_html[:500]}")
                 except Exception as e:
                     print(f"  [HiStock] [{i}/{len(codes)}] {code}: {e}")
                 _time.sleep(1)

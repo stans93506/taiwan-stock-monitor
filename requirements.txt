@@ -5,3 +5,4 @@ lxml
 openpyxl
 playwright
 playwright-stealth
+curl_cffi
