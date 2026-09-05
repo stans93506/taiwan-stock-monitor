@@ -35,6 +35,7 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           HISTOCK_EMAIL: ${{ secrets.HISTOCK_EMAIL }}
           HISTOCK_PASSWORD: ${{ secrets.HISTOCK_PASSWORD }}
+          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
 
       - name: 複製為 index.html（供 GitHub Pages 使用）
         run: cp 台股監測.html index.html

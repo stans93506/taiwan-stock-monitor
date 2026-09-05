@@ -475,8 +475,24 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
                                   f"?no={code}&from={date_str}&to={date_str}")
                     brokers = []
 
-                    # 優先用 curl_cffi（模擬 Chrome TLS 指紋繞過 Cloudflare）
-                    if cf_session:
+                    # 優先用 ScraperAPI（繞過 Cloudflare）
+                    _scraper_key = os.environ.get("SCRAPERAPI_KEY", "")
+                    if _scraper_key and not brokers:
+                        try:
+                            import urllib.parse as _up
+                            _sa_url = (f"http://api.scraperapi.com?"
+                                       f"api_key={_scraper_key}&render=true"
+                                       f"&url={_up.quote(branch_url, safe='')}")
+                            import urllib.request as _ur
+                            with _ur.urlopen(_sa_url, timeout=60) as _r:
+                                _html = _r.read().decode("utf-8", errors="replace")
+                            if "Just a moment" not in _html:
+                                brokers = _parse_branch_html(_html)
+                        except Exception as _e:
+                            print(f"  [HiStock] ScraperAPI 失敗: {_e}")
+
+                    # ScraperAPI 失敗時用 curl_cffi
+                    if cf_session and not brokers:
                         try:
                             resp = cf_session.get(branch_url, timeout=20)
                             if "Just a moment" not in resp.text:
