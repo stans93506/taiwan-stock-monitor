@@ -495,6 +495,25 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
                                 if _attempt == 2:
                                     print(f"  [HiStock] ScraperAPI 失敗: {_e}")
 
+                    # ScraperAPI 額度用完時 fallback 到 ZenRows
+                    _zr_key = os.environ.get("ZENROWS_KEY", "")
+                    if _zr_key and not brokers:
+                        import urllib.parse as _up
+                        import urllib.request as _ur
+                        _zr_url = (f"https://api.zenrows.com/v1/"
+                                   f"?apikey={_zr_key}&js_render=true"
+                                   f"&wait=2000"
+                                   f"&url={_up.quote(branch_url, safe='')}")
+                        try:
+                            with _ur.urlopen(_zr_url, timeout=90) as _r:
+                                _html = _r.read().decode("utf-8", errors="replace")
+                            if "Just a moment" not in _html:
+                                brokers = _parse_branch_html(_html)
+                            if not brokers:
+                                print(f"  [HiStock] ZenRows 回傳但無分點資料")
+                        except Exception as _e:
+                            print(f"  [HiStock] ZenRows 失敗: {_e}")
+
                     # ScraperAPI 失敗時用 curl_cffi
                     if cf_session and not brokers:
                         try:
