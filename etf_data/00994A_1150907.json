@@ -187,15 +187,15 @@
       "weight": 0.64
     },
     {
-      "code": "2360",
-      "name": "致茂",
-      "shares": 12000,
-      "weight": 0.57
-    },
-    {
       "code": "3665",
       "name": "貿聯-KY",
       "shares": 13000,
+      "weight": 0.57
+    },
+    {
+      "code": "2360",
+      "name": "致茂",
+      "shares": 12000,
       "weight": 0.57
     },
     {
@@ -265,5 +265,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "16:39"
+  "fetch_time": "17:14"
 }
