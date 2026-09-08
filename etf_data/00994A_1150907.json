@@ -247,15 +247,15 @@
       "weight": 0.02
     },
     {
-      "code": "2317",
-      "name": "鴻海",
-      "shares": 1000,
-      "weight": 0.01
-    },
-    {
       "code": "9941",
       "name": "裕融",
       "shares": 7260,
+      "weight": 0.01
+    },
+    {
+      "code": "2317",
+      "name": "鴻海",
+      "shares": 1000,
       "weight": 0.01
     },
     {
@@ -265,5 +265,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "14:35"
+  "fetch_time": "15:38"
 }
