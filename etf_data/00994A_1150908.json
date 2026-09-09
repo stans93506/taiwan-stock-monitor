@@ -115,15 +115,15 @@
       "weight": 1.65
     },
     {
-      "code": "3711",
-      "name": "日月光投控",
-      "shares": 123002,
-      "weight": 1.64
-    },
-    {
       "code": "3189",
       "name": "景碩",
       "shares": 95000,
+      "weight": 1.64
+    },
+    {
+      "code": "3711",
+      "name": "日月光投控",
+      "shares": 123002,
       "weight": 1.64
     },
     {
@@ -151,15 +151,15 @@
       "weight": 1.04
     },
     {
-      "code": "2481",
-      "name": "強茂",
-      "shares": 290000,
-      "weight": 0.95
-    },
-    {
       "code": "8996",
       "name": "高力",
       "shares": 36000,
+      "weight": 0.95
+    },
+    {
+      "code": "2481",
+      "name": "強茂",
+      "shares": 290000,
       "weight": 0.95
     },
     {
@@ -247,15 +247,15 @@
       "weight": 0.02
     },
     {
-      "code": "9941",
-      "name": "裕融",
-      "shares": 7260,
-      "weight": 0.01
-    },
-    {
       "code": "2317",
       "name": "鴻海",
       "shares": 1000,
+      "weight": 0.01
+    },
+    {
+      "code": "9941",
+      "name": "裕融",
+      "shares": 7260,
       "weight": 0.01
     },
     {
@@ -265,5 +265,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "09:06"
+  "fetch_time": "09:35"
 }
