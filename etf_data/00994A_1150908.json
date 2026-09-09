@@ -151,15 +151,15 @@
       "weight": 1.04
     },
     {
-      "code": "8996",
-      "name": "高力",
-      "shares": 36000,
-      "weight": 0.95
-    },
-    {
       "code": "2481",
       "name": "強茂",
       "shares": 290000,
+      "weight": 0.95
+    },
+    {
+      "code": "8996",
+      "name": "高力",
+      "shares": 36000,
       "weight": 0.95
     },
     {
@@ -247,15 +247,15 @@
       "weight": 0.02
     },
     {
-      "code": "2317",
-      "name": "鴻海",
-      "shares": 1000,
-      "weight": 0.01
-    },
-    {
       "code": "9941",
       "name": "裕融",
       "shares": 7260,
+      "weight": 0.01
+    },
+    {
+      "code": "2317",
+      "name": "鴻海",
+      "shares": 1000,
       "weight": 0.01
     },
     {
