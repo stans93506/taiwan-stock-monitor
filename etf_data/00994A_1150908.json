@@ -115,15 +115,15 @@
       "weight": 1.65
     },
     {
-      "code": "3189",
-      "name": "景碩",
-      "shares": 95000,
-      "weight": 1.64
-    },
-    {
       "code": "3711",
       "name": "日月光投控",
       "shares": 123002,
+      "weight": 1.64
+    },
+    {
+      "code": "3189",
+      "name": "景碩",
+      "shares": 95000,
       "weight": 1.64
     },
     {
@@ -265,5 +265,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "14:37"
+  "fetch_time": "15:37"
 }
