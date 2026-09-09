@@ -3761,8 +3761,8 @@ def _score_news(all_news: list) -> dict:
 新聞列表：
 {news_text}"""
     try:
-        print(f"  → Groq 評分（{len(all_news)} 則）...", end="", flush=True)
-        raw = _ai_post([{"role": "user", "content": prompt}], temperature=0.1)
+        print(f"  → AI 評分（{len(all_news)} 則）...", end="", flush=True)
+        raw = _gemini_post([{"role": "user", "content": prompt}], temperature=0.1)
         # 擷取 JSON：支援 {"scores":{...}} 和 {"1":5,...} 兩種格式
         m = re.search(r'\{[\s\S]*\}', raw)
         if m:
