@@ -3784,7 +3784,7 @@ def _score_news(all_news: list) -> dict:
                 return scores
         print(f" 回傳格式異常（前100字：{raw[:100]!r}）")
     except Exception as e:
-        print(f" 失敗: {e}")
+        print(f" 失敗: {e}，改用關鍵字評分")
     return {}
 
 
