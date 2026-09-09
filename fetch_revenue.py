@@ -101,7 +101,6 @@ QTR_RSS_KEEP_DAYS  = 7   # RSS 快取保留天數
 HIST_PRICE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hist_price_cache.json")
 NEWS_TS_FILE       = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_fetch_ts.json")
 NEWS_CONTENT_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_content_cache.json")
-NEWS_AI_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "news_ai_cache.json")
 REV_CACHE_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rev_cache.json")
 REV_ARCHIVE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rev_archive.json")
 REV_ARCHIVE_MONTHS  = 2   # 保留最近 N 個月封存
@@ -3794,17 +3793,6 @@ def fetch_daily_news_analysis() -> tuple:
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    # 讀取 AI 分析 cache（當天已分析過就直接用）
-    _today = datetime.now().strftime("%Y-%m-%d")
-    try:
-        with open(NEWS_AI_CACHE_FILE, encoding="utf-8") as _f:
-            _ai_cache = json.load(_f)
-        if _ai_cache.get("date") == _today and _ai_cache.get("html"):
-            print(f"  📰 AI 分析 cache 命中（{_today}），跳過 Groq 呼叫")
-            return _ai_cache["html"], _ai_cache.get("items", [])
-    except Exception:
-        pass
-
     print("  → 新聞 MoneyDJ...", end="", flush=True)
     moneydj = fetch_moneydj_news()
     print(f" {len(moneydj)} 則")
@@ -3996,18 +3984,6 @@ def fetch_daily_news_analysis() -> tuple:
     if in_ul:
         html_lines.append("</ul>")
     analysis_html = "\n".join(html_lines)
-
-    # 分析成功時寫入 cache（失敗訊息不 cache）
-    if not analysis_md.startswith("⚠️"):
-        try:
-            with open(NEWS_AI_CACHE_FILE, "w", encoding="utf-8") as _f:
-                json.dump({
-                    "date": _today,
-                    "html": analysis_html,
-                    "items": [{k: v for k, v in it.items() if k != "snippet"} for it in all_news],
-                }, _f, ensure_ascii=False)
-        except Exception:
-            pass
 
     return analysis_html, all_news
 
