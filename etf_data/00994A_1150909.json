@@ -151,15 +151,15 @@
       "weight": 1.07
     },
     {
-      "code": "2360",
-      "name": "致茂",
-      "shares": 21000,
-      "weight": 1.06
-    },
-    {
       "code": "6239",
       "name": "力成",
       "shares": 175000,
+      "weight": 1.06
+    },
+    {
+      "code": "2360",
+      "name": "致茂",
+      "shares": 21000,
       "weight": 1.06
     },
     {
@@ -187,15 +187,15 @@
       "weight": 0.85
     },
     {
-      "code": "6515",
-      "name": "穎崴",
-      "shares": 4000,
-      "weight": 0.63
-    },
-    {
       "code": "3491",
       "name": "昇達科",
       "shares": 20000,
+      "weight": 0.63
+    },
+    {
+      "code": "6515",
+      "name": "穎崴",
+      "shares": 4000,
       "weight": 0.63
     },
     {
@@ -247,5 +247,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "15:37"
+  "fetch_time": "16:08"
 }
