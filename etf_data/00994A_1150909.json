@@ -151,15 +151,15 @@
       "weight": 1.07
     },
     {
-      "code": "2360",
-      "name": "致茂",
-      "shares": 21000,
-      "weight": 1.06
-    },
-    {
       "code": "6239",
       "name": "力成",
       "shares": 175000,
+      "weight": 1.06
+    },
+    {
+      "code": "2360",
+      "name": "致茂",
+      "shares": 21000,
       "weight": 1.06
     },
     {
@@ -247,5 +247,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "14:08"
+  "fetch_time": "14:36"
 }
