@@ -3593,7 +3593,7 @@ def _gemini_post(messages: list, temperature=0.4, timeout=60) -> str:
             except (KeyError, IndexError) as e:
                 raise RuntimeError(f"Gemini 回應格式異常: {e}, body={resp.text[:200]}")
         last_err = resp.text[:300]
-        if resp.status_code not in (404, 400):
+        if resp.status_code not in (404, 400, 429):
             break
     raise RuntimeError(f"Gemini {last_err}")
 
@@ -3717,10 +3717,25 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
             time.sleep(retry_after + 1)
             resp = _do_post(model)
         else:
-            daily = retry_after is not None and retry_after > 30
-            msg = (f"Groq 每日配額已用完（需等待 {retry_after:.0f} 秒）" if daily
-                   else "Groq 429 Too Many Requests")
-            raise RuntimeError(msg)
+            # 換下一個 Groq 模型重試（各模型限速額度獨立）
+            avail = _groq_available_models()
+            tried = {model}
+            switched = False
+            for fallback in _GROQ_PREFERRED + avail:
+                if fallback in tried:
+                    continue
+                tried.add(fallback)
+                print(f"\n  ⏳ Groq {model} 429，換 {fallback} 重試...", end="", flush=True)
+                resp = _do_post(fallback)
+                if resp.status_code != 429:
+                    model = fallback
+                    switched = True
+                    break
+            if not switched:
+                daily = retry_after is not None and retry_after > 30
+                msg = (f"Groq 每日配額已用完（需等待 {retry_after:.0f} 秒）" if daily
+                       else "Groq 所有模型均 429")
+                raise RuntimeError(msg)
 
     if resp.status_code == 413:
         raise RuntimeError(f"413 Payload Too Large（模型：{model}）")
