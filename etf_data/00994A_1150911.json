@@ -211,15 +211,15 @@
       "weight": 0.37
     },
     {
-      "code": "3661",
-      "name": "世芯-KY",
-      "shares": 4000,
-      "weight": 0.32
-    },
-    {
       "code": "2882",
       "name": "國泰金",
       "shares": 130000,
+      "weight": 0.32
+    },
+    {
+      "code": "3661",
+      "name": "世芯-KY",
+      "shares": 4000,
       "weight": 0.32
     },
     {
@@ -241,5 +241,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "16:51"
+  "fetch_time": "17:06"
 }
