@@ -3512,11 +3512,12 @@ def load_borrow_history() -> tuple:
     return avail_dates, history
 
 
-_NEWS_SYSTEM = """你是一位擁有20年經驗的專業投資人，深諳台灣及全球股市、總體經濟與產業鏈研究。
+_NEWS_SYSTEM = """/no_think
+你是一位擁有20年經驗的專業投資人，深諳台灣及全球股市、總體經濟與產業鏈研究。
 請以專業投資人的視角，對今日新聞進行深度解讀，分析背後的產業邏輯、供應鏈影響與投資機會。
 回答用繁體中文，條列式呈現，分析要具體深入，不可流於表面。不需附任何連結。
 重要格式規定：
-- 直接輸出內容，不要加開場白、自我介紹或結語
+- 直接輸出內容，不要加開場白、自我介紹或結語、不要輸出任何思考過程
 - 每個區塊標題用 ## 開頭，例如：## 一、前日美股狀況
 - 子標題用 ### 開頭
 - 重點用 - 開頭條列
@@ -3741,6 +3742,9 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
         raise RuntimeError(f"413 Payload Too Large（模型：{model}）")
     resp.raise_for_status()
     content = resp.json()["choices"][0]["message"]["content"] or ""
+    # qwen3 模型會輸出 <think>...</think> 思考過程，需要移除
+    import re as _re
+    content = _re.sub(r"<think>[\s\S]*?</think>", "", content, flags=_re.IGNORECASE).strip()
     if not content.strip():
         # 空回應 → 嘗試換模型
         avail = _groq_available_models()
