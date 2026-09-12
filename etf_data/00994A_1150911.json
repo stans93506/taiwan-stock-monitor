@@ -19,15 +19,15 @@
       "weight": 7.91
     },
     {
-      "code": "2454",
-      "name": "聯發科",
-      "shares": 69001,
-      "weight": 7.04
-    },
-    {
       "code": "2383",
       "name": "台光電",
       "shares": 59001,
+      "weight": 7.04
+    },
+    {
+      "code": "2454",
+      "name": "聯發科",
+      "shares": 69001,
       "weight": 7.04
     },
     {
@@ -241,5 +241,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "14:33"
+  "fetch_time": "15:03"
 }
