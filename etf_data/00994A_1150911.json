@@ -19,15 +19,15 @@
       "weight": 7.91
     },
     {
-      "code": "2383",
-      "name": "台光電",
-      "shares": 59001,
-      "weight": 7.04
-    },
-    {
       "code": "2454",
       "name": "聯發科",
       "shares": 69001,
+      "weight": 7.04
+    },
+    {
+      "code": "2383",
+      "name": "台光電",
+      "shares": 59001,
       "weight": 7.04
     },
     {
@@ -121,15 +121,15 @@
       "weight": 1.54
     },
     {
-      "code": "3081",
-      "name": "聯亞",
-      "shares": 23000,
-      "weight": 1.44
-    },
-    {
       "code": "6805",
       "name": "富世達",
       "shares": 30000,
+      "weight": 1.44
+    },
+    {
+      "code": "3081",
+      "name": "聯亞",
+      "shares": 23000,
       "weight": 1.44
     },
     {
@@ -211,15 +211,15 @@
       "weight": 0.37
     },
     {
-      "code": "2882",
-      "name": "國泰金",
-      "shares": 130000,
-      "weight": 0.32
-    },
-    {
       "code": "3661",
       "name": "世芯-KY",
       "shares": 4000,
+      "weight": 0.32
+    },
+    {
+      "code": "2882",
+      "name": "國泰金",
+      "shares": 130000,
       "weight": 0.32
     },
     {
@@ -241,5 +241,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "18:03"
+  "fetch_time": "18:35"
 }
