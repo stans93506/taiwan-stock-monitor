@@ -3970,15 +3970,12 @@ def fetch_daily_news_analysis() -> tuple:
         analysis_md = f"⚠️ Groq API 呼叫失敗：{e}"
 
     # 4. markdown → html
-    # 去除開頭自我介紹（第一行若不是 # 或 - 開頭）
-    md_lines = analysis_md.strip().split("\n")
-    while md_lines and not md_lines[0].strip().startswith(("#", "-", "|", "##")):
-        first = md_lines[0].strip()
-        if len(first) < 80 and any(w in first for w in ("我是", "早報", "分析師", "您好", "你好", "針對")):
-            md_lines.pop(0)
-        else:
-            break
-    analysis_md = "\n".join(md_lines)
+    # 去除 ## 之前的所有內容（qwen3 思考過程、自我介紹等雜訊）
+    first_header = analysis_md.find("\n##")
+    if first_header == -1:
+        first_header = analysis_md.find("##")
+    if first_header > 0:
+        analysis_md = analysis_md[first_header:].lstrip()
 
     text = re.sub(r'^#{1,6} (.+)$', lambda m: f'<h2>{m.group(1)}</h2>', analysis_md, flags=re.MULTILINE)
     # | 一、標題 格式（qwen 模型習慣）
