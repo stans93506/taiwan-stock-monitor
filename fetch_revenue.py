@@ -188,7 +188,8 @@ def get_valid_codes() -> set:
 
 def get_name_to_code_map() -> dict:
     """建立公司名稱 → 股票代碼的對照表。
-    優先從 t187ap05 營收 API 取（欄位最穩定），失敗時用 t51sb01。"""
+    合併 t187ap05（月營收申報）與 t51sb01（全上市清單），
+    確保金融控股等不走月營收 API 的公司也能對應到代碼。"""
     mapping = {}
     # t187ap05 欄位：公司代號、公司名稱
     for url in REV_APIS.values():
@@ -197,16 +198,14 @@ def get_name_to_code_map() -> dict:
             name = str(r.get("公司名稱") or "").strip()
             if code and name:
                 mapping[name] = code
-    if mapping:
-        return mapping
-    # fallback: t51sb01
+    # 永遠補充 t51sb01（含金控等不在月營收 API 的公司）
     for url in LISTED_CODES_APIS:
         for r in fetch_json(url):
             code = str(r.get("公司代號") or r.get("SecuritiesCompanyCode") or "").strip()
-            name = str(r.get("公司名稱") or r.get("公司簡稱") or
-                       r.get("CompanyName") or r.get("CompanyAbbreviation") or "").strip()
-            if code and name:
-                mapping[name] = code
+            for name_key in ("公司名稱", "公司簡稱", "CompanyName", "CompanyAbbreviation"):
+                name = str(r.get(name_key) or "").strip()
+                if code and name and name not in mapping:
+                    mapping[name] = code
     return mapping
 
 
@@ -492,6 +491,12 @@ def fetch_revenue_moneydj(roc_year: int, month: int,
                 continue
             co_name = entry["co_name"]
             code = art["code"] or nm_map.get(co_name, "")
+            # 簡稱模糊比對：若完整名稱查不到，嘗試 nm_map 中有沒有以 co_name 開頭的 key
+            if not code:
+                for k, v in nm_map.items():
+                    if k.startswith(co_name) or co_name.startswith(k):
+                        code = v
+                        break
             if not code:
                 continue
             if listed_codes and code not in listed_codes:
@@ -3970,15 +3975,12 @@ def fetch_daily_news_analysis() -> tuple:
         analysis_md = f"⚠️ Groq API 呼叫失敗：{e}"
 
     # 4. markdown → html
-    # 去除開頭自我介紹（第一行若不是 # 或 - 開頭）
-    md_lines = analysis_md.strip().split("\n")
-    while md_lines and not md_lines[0].strip().startswith(("#", "-", "|", "##")):
-        first = md_lines[0].strip()
-        if len(first) < 80 and any(w in first for w in ("我是", "早報", "分析師", "您好", "你好", "針對")):
-            md_lines.pop(0)
-        else:
-            break
-    analysis_md = "\n".join(md_lines)
+    # 去除 ## 之前的所有內容（qwen3 思考過程、自我介紹等雜訊）
+    first_header = analysis_md.find("\n##")
+    if first_header == -1:
+        first_header = analysis_md.find("##")
+    if first_header > 0:
+        analysis_md = analysis_md[first_header:].lstrip()
 
     text = re.sub(r'^#{1,6} (.+)$', lambda m: f'<h2>{m.group(1)}</h2>', analysis_md, flags=re.MULTILINE)
     # | 一、標題 格式（qwen 模型習慣）
