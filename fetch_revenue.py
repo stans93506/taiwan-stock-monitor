@@ -3615,13 +3615,18 @@ def _ai_post(messages: list, temperature=0.4, timeout=60) -> str:
 
 
 _GROQ_MODEL_CACHE: list | None = None
-# 依偏好順序：開發者方案可用的大 context 模型優先
+# 依偏好順序排列，優先使用長 context 的大模型
 _GROQ_PREFERRED = [
-    "qwen/qwen3.8-27b",            # 131K context，財務 prompt 回應穩定
-    "qwen/qwen3.6-27b",            # 131K context
-    "openai/gpt-oss-120b",         # 131K context, 500 t/s
-    "openai/gpt-oss-20b",          # 131K context（對財務 prompt 有內容過濾，備用）
-    "llama-3.3-70b-versatile",     # Enterprise，若帳號有權限則使用
+    "moonshotai/kimi-k2-instruct",  # 131K context，免費方案穩定
+    "qwen/qwen3.8-27b",             # 131K context
+    "qwen/qwen3.6-27b",             # 131K context
+    "groq/compound",                # Groq 自家複合模型
+    "groq/compound-mini",           # Groq 自家複合小型
+    "openai/gpt-oss-120b",          # 131K context
+    "openai/gpt-oss-20b",           # 131K context
+    "llama-3.3-70b-versatile",      # 傳統穩定模型
+    "llama3-70b-8192",              # 備用
+    "gemma2-9b-it",                 # 最後保底
 ]
 
 # 排除非 chat 模型（語音、guard、embedding 等）
@@ -3660,7 +3665,7 @@ def _groq_pick_model() -> str:
             if m in avail:
                 return m
         return avail[0]
-    return "llama-3.3-70b-versatile"
+    return "moonshotai/kimi-k2-instruct"
 
 def _groq_post(messages: list, temperature=0.4, timeout=60,
                model: str | None = None) -> str:
