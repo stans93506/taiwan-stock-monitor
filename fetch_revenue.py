@@ -3732,13 +3732,14 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
             avail = _groq_available_models()
             tried = {model}
             switched = False
-            for fallback in _GROQ_PREFERRED + avail:
+            # 優先用已確認可用的模型，再補 _GROQ_PREFERRED 裡其他的
+            for fallback in avail + _GROQ_PREFERRED:
                 if fallback in tried:
                     continue
                 tried.add(fallback)
                 print(f"\n  ⏳ Groq {model} 429，換 {fallback} 重試...", end="", flush=True)
                 resp = _do_post(fallback)
-                if resp.status_code != 429:
+                if resp.status_code not in (429, 400, 404):
                     model = fallback
                     switched = True
                     break
