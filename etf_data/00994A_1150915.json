@@ -151,15 +151,15 @@
       "weight": 1.03
     },
     {
-      "code": "2360",
-      "name": "致茂",
-      "shares": 21000,
-      "weight": 1.01
-    },
-    {
       "code": "8996",
       "name": "高力",
       "shares": 36000,
+      "weight": 1.01
+    },
+    {
+      "code": "2360",
+      "name": "致茂",
+      "shares": 21000,
       "weight": 1.01
     },
     {
