@@ -31,15 +31,15 @@
       "weight": 6.61
     },
     {
-      "code": "6274",
-      "name": "台燿",
-      "shares": 158000,
-      "weight": 5.09
-    },
-    {
       "code": "6223",
       "name": "旺矽",
       "shares": 39901,
+      "weight": 5.09
+    },
+    {
+      "code": "6274",
+      "name": "台燿",
+      "shares": 158000,
       "weight": 5.09
     },
     {
@@ -241,5 +241,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "14:45"
+  "fetch_time": "15:37"
 }
