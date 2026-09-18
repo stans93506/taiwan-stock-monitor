@@ -193,7 +193,7 @@
 <!-- 頂部導覽 -->
 <div class="top-nav">
   <span class="brand">📊 台股財務監測</span>
-  <span class="meta">更新：2026-09-18 18:53 ｜ 來源：公開資訊觀測站</span>
+  <span class="meta">更新：2026-09-18 20:38 ｜ 來源：公開資訊觀測站</span>
 </div>
 
 <!-- 分頁列 -->
@@ -4249,7 +4249,7 @@
     <div class="row g-3 mb-3">
       <div class="col-6 col-md-3">
         <div class="card stat-card">
-          <div class="num text-primary">26</div>
+          <div class="num text-primary">27</div>
           <div class="lbl">執行中</div>
         </div>
       </div>
@@ -4261,22 +4261,34 @@
       </div>
       <div class="col-6 col-md-3">
         <div class="card stat-card">
-          <div class="num pos">0</div>
+          <div class="num pos">1</div>
           <div class="lbl">今日新公告</div>
         </div>
       </div>
       <div class="col-6 col-md-3">
         <div class="card stat-card">
-          <div class="num" style="color:#e65c00">0</div>
+          <div class="num" style="color:#e65c00">1</div>
           <div class="lbl">市場未反映</div>
         </div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header px-3 py-2">庫藏股執行情形 </div>
+      <div class="card-header px-3 py-2">庫藏股執行情形 <span class='badge-unreact ms-2'>未反映 1 筆</span></div>
       <div class="card-body p-0">
-        
+        <div class='card mb-3'>
+              <div class='card-header px-3 py-2'>
+                市場未反映（9/18 新公告）（1 筆）
+              </div>
+              <div class='table-responsive'>
+              <table class='table table-hover mb-0 w-100'>
+                <thead><tr>
+              <th style='display:none'></th>
+              <th>市場</th><th>代碼</th><th>名稱</th><th>公告時間</th>
+              <th>目的</th><th title="1張=1000股">預定(張)</th><th>價格區間</th><th>期間</th><th>進度</th><th>決議日</th>
+            </tr></thead>
+                <tbody><tr class='after-close'><td style='display:none'>0</td><td><span class='badge badge-otc'>上櫃</span></td><td><b style='color:#4fc3f7'>6986</b></td><td>和迅</td><td><span class='badge-unreact'>未反映</span> 09/18 19:05</td><td><span style='background:#1a7f37;color:#fff;padding:1px 7px;border-radius:4px;font-size:0.75rem'>員工</span></td><td>1,500 張</td><td>28.2~58.0</td><td>09/18~11/17</td><td><span style='color:#aaa;font-size:0.76rem'>-</span></td><td>09/18</td></tr></tbody>
+              </table></div></div>
           <div class='card mb-3'><div class='card-body py-2'>
             <div class='d-flex filter-bar'>
               <label style='font-size:.82rem;'>市場</label>
@@ -5382,7 +5394,7 @@
 <div class="container-fluid px-3 py-2">
   <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
     <h5 class="mb-0">主動ETF持股追蹤</h5>
-    <small class="text-muted">更新：2026/09/18 18:06</small>
+    <small class="text-muted">更新：2026/09/18 19:36</small>
     <select id="etfDateSelect" class="form-select form-select-sm d-inline-block" style="width:auto;min-width:120px;background-color:#2a2a3e;color:#e0e0e0;border-color:#555" onchange="etfSelectDate(this.value)"><option value="1150918">115/09/18</option><option value="1150917">115/09/17</option><option value="1150916">115/09/16</option><option value="1150915">115/09/15</option><option value="1150914">115/09/14</option><option value="1150911">115/09/11</option><option value="1150910">115/09/10</option><option value="1150909">115/09/09</option><option value="1150908">115/09/08</option><option value="1150907">115/09/07</option><option value="1150904">115/09/04</option><option value="1150903">115/09/03</option><option value="1150902">115/09/02</option><option value="1150901">115/09/01</option><option value="1150831">115/08/31</option><option value="1150828">115/08/28</option><option value="1150827">115/08/27</option><option value="1150826">115/08/26</option><option value="1150825">115/08/25</option><option value="1150824">115/08/24</option><option value="1150821">115/08/21</option><option value="1150820">115/08/20</option><option value="1150819">115/08/19</option></select>
     
   </div>
@@ -5473,7 +5485,7 @@
 </div>
     
 <div class="card mb-3">
-  <div class="card-header px-3 py-2 fw-bold">各基金買賣概況　14 檔</div>
+  <div class="card-header px-3 py-2 fw-bold">各基金買賣概況　15 檔</div>
   <div class="table-responsive">
   <table class="table table-hover table-sm mb-0" id="etfFundTable">
     <thead><tr>
