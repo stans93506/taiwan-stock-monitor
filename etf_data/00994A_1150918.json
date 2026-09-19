@@ -217,15 +217,15 @@
       "weight": 0.34
     },
     {
-      "code": "1560",
-      "name": "中砂",
-      "shares": 16000,
-      "weight": 0.32
-    },
-    {
       "code": "2882",
       "name": "國泰金",
       "shares": 130000,
+      "weight": 0.32
+    },
+    {
+      "code": "1560",
+      "name": "中砂",
+      "shares": 16000,
       "weight": 0.32
     },
     {
@@ -247,5 +247,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "13:34"
+  "fetch_time": "14:33"
 }
