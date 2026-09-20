@@ -1022,8 +1022,27 @@ def compute_changes(today: dict, yesterday: dict | None) -> list[dict]:
 
 # ── 當日漲跌幅 ───────────────────────────────────────────────────────
 
+_STOCK_DATA_CACHE_FILE = DATA_DIR.parent / "etf_stock_data_cache.json"
+
+def _load_stock_data_cache() -> dict:
+    try:
+        if _STOCK_DATA_CACHE_FILE.exists():
+            return json.loads(_STOCK_DATA_CACHE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+def _save_stock_data_cache(data: dict) -> None:
+    try:
+        _STOCK_DATA_CACHE_FILE.write_text(
+            json.dumps(data, ensure_ascii=False), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
 def fetch_stock_data(codes: list[str]) -> dict[str, dict]:
-    """從 TWSE/OTC OpenAPI 抓取各股當日漲跌幅/成交量/已發行股數，回傳 {code: {pct, volume, issued}}"""
+    """從 TWSE/OTC OpenAPI 抓取各股當日漲跌幅/成交量/已發行股數，回傳 {code: {pct, volume, issued}}
+    週末或 API 回空時，以上次交易日的 cache 補充缺失資料。"""
     if not codes:
         return {}
     result: dict[str, dict] = {}
@@ -1127,10 +1146,32 @@ def fetch_stock_data(codes: list[str]) -> dict[str, dict]:
         except Exception as e:
             print(f"  ⚠ OTC 已發行股數查詢失敗：{e}")
 
+    # 用上次交易日的 cache 補充缺失欄位（週末 / API 空回時）
+    cache = _load_stock_data_cache()
+    filled = 0
+    for c in code_set:
+        cached = cache.get(c, {})
+        if not cached:
+            continue
+        entry = result.setdefault(c, {})
+        for key in ("pct", "volume", "issued", "price"):
+            if key not in entry and key in cached:
+                entry[key] = cached[key]
+                if key == "pct":
+                    filled += 1
+
     n_pct = sum(1 for v in result.values() if "pct"    in v)
     n_vol = sum(1 for v in result.values() if "volume" in v)
     n_iss = sum(1 for v in result.values() if "issued" in v)
-    print(f"  漲跌幅 {n_pct}/{len(codes)}  成交量 {n_vol}/{len(codes)}  已發行股數 {n_iss}/{len(codes)}")
+    if filled:
+        print(f"  漲跌幅 {n_pct}/{len(codes)}  成交量 {n_vol}/{len(codes)}  已發行股數 {n_iss}/{len(codes)}（含 {filled} 支 cache 補充）")
+    else:
+        print(f"  漲跌幅 {n_pct}/{len(codes)}  成交量 {n_vol}/{len(codes)}  已發行股數 {n_iss}/{len(codes)}")
+
+    # 本次有新資料時更新 cache（只在交易日有足夠資料時才覆蓋）
+    if n_pct >= len(codes) // 2:
+        _save_stock_data_cache(result)
+
     return result
 
 
