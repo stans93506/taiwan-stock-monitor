@@ -1070,26 +1070,56 @@ def fetch_stock_data(codes: list[str]) -> dict[str, dict]:
         except (ValueError, TypeError):
             return None
 
-    # TWSE 上市：漲跌幅 + 成交量 + 收盤價
+    # TWSE 上市：漲跌幅 + 成交量 + 收盤價（OpenAPI 優先，空時 fallback rwd）
+    def _parse_twse_items(items: list, code_field="Code", close_field="ClosingPrice",
+                          change_field="Change", vol_field="TradeVolume"):
+        for item in items:
+            c = str(item.get(code_field, "")).strip()
+            if c not in code_set:
+                continue
+            result.setdefault(c, {})
+            pct = _pct(item.get(close_field), item.get(change_field))
+            if pct is not None:
+                result[c]["pct"] = pct
+            result[c]["volume"] = _int(item.get(vol_field, 0))
+            p = _price(item.get(close_field))
+            if p:
+                result[c]["price"] = p
+
     try:
         r = requests.get(
             "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
             headers={"Accept": "application/json"}, timeout=15, verify=False,
         )
-        for item in (r.json() if r.ok else []):
-            c = str(item.get("Code", "")).strip()
-            if c not in code_set:
-                continue
-            result.setdefault(c, {})
-            pct = _pct(item.get("ClosingPrice"), item.get("Change"))
-            if pct is not None:
-                result[c]["pct"] = pct
-            result[c]["volume"] = _int(item.get("TradeVolume", 0))
-            p = _price(item.get("ClosingPrice"))
-            if p:
-                result[c]["price"] = p
+        items = r.json() if r.ok else []
+        _parse_twse_items(items)
     except Exception as e:
-        print(f"  ⚠ TWSE 漲跌幅/成交量查詢失敗：{e}")
+        print(f"  ⚠ TWSE OpenAPI 查詢失敗：{e}")
+
+    # TWSE rwd 備援（OpenAPI 週末回空時補充）
+    if len(result) < len(code_set) // 2:
+        try:
+            r = requests.get(
+                "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json",
+                headers={"Accept": "application/json"}, timeout=15, verify=False,
+            )
+            if r.ok:
+                d = r.json()
+                fields = d.get("fields", [])
+                rows = d.get("data", [])
+                # 轉成 dict，欄位名稱對應 OpenAPI
+                rwd_items = []
+                for row in rows:
+                    item = dict(zip(fields, row))
+                    rwd_items.append({
+                        "Code":         item.get("證券代號", ""),
+                        "ClosingPrice": item.get("收盤價", ""),
+                        "Change":       item.get("漲跌價差", ""),
+                        "TradeVolume":  item.get("成交股數", "0"),
+                    })
+                _parse_twse_items(rwd_items)
+        except Exception as e:
+            print(f"  ⚠ TWSE rwd 備援查詢失敗：{e}")
 
     # OTC 上櫃：漲跌幅 + 成交量 + 收盤價（補充 TWSE 未包含的）
     missing = code_set - set(result)
