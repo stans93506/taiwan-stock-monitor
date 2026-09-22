@@ -181,15 +181,15 @@
       "weight": 0.67
     },
     {
-      "code": "7769",
-      "name": "鴻勁",
-      "shares": 5000,
-      "weight": 0.66
-    },
-    {
       "code": "3665",
       "name": "貿聯-KY",
       "shares": 13000,
+      "weight": 0.66
+    },
+    {
+      "code": "7769",
+      "name": "鴻勁",
+      "shares": 5000,
       "weight": 0.66
     },
     {
@@ -235,5 +235,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "08:34"
+  "fetch_time": "09:40"
 }
