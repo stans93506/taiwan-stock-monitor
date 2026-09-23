@@ -3616,18 +3616,20 @@ def _ai_post(messages: list, temperature=0.4, timeout=60) -> str:
 
 _GROQ_MODEL_CACHE: list | None = None
 # 依偏好順序排列，優先使用長 context 的大模型
+# 注意：groq/compound 系列是多步驟推理模型，不適合單次文字生成（會自我驗證無限迴圈）
 _GROQ_PREFERRED = [
     "moonshotai/kimi-k2-instruct",  # 131K context，免費方案穩定
     "qwen/qwen3.8-27b",             # 131K context
     "qwen/qwen3.6-27b",             # 131K context
-    "groq/compound",                # Groq 自家複合模型
-    "groq/compound-mini",           # Groq 自家複合小型
     "openai/gpt-oss-120b",          # 131K context
     "openai/gpt-oss-20b",           # 131K context
     "llama-3.3-70b-versatile",      # 傳統穩定模型
     "llama3-70b-8192",              # 備用
     "gemma2-9b-it",                 # 最後保底
 ]
+
+# compound 系列排除：會觸發自我驗證迴圈，不適合新聞分析
+_GROQ_EXCLUDE_COMPOUND = {"groq/compound", "groq/compound-mini"}
 
 # 排除非 chat 模型（語音、guard、embedding 等）
 _GROQ_EXCLUDE_KEYWORDS = ("whisper", "tts", "guard", "safeguard", "embed",
@@ -3659,7 +3661,7 @@ def _groq_available_models() -> list[str]:
 
 def _groq_pick_model() -> str:
     """從偏好清單選出第一個目前 Groq 有提供的模型"""
-    avail = _groq_available_models()
+    avail = [m for m in _groq_available_models() if m not in _GROQ_EXCLUDE_COMPOUND]
     if avail:
         for m in _GROQ_PREFERRED:
             if m in avail:
@@ -3694,7 +3696,7 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
 
     # 404/400 → 模型不存在或不支援，自動嘗試下一個可用模型
     if resp.status_code in (400, 404):
-        avail = _groq_available_models()
+        avail = [m for m in _groq_available_models() if m not in _GROQ_EXCLUDE_COMPOUND]
         err_body = ""
         try:
             err_body = resp.json().get("error", {}).get("message", "")
@@ -3729,7 +3731,7 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
             resp = _do_post(model)
         else:
             # 換下一個 Groq 模型重試（各模型限速額度獨立）
-            avail = _groq_available_models()
+            avail = [m for m in _groq_available_models() if m not in _GROQ_EXCLUDE_COMPOUND]
             tried = {model}
             switched = False
             # 優先用已確認可用的模型，再補 _GROQ_PREFERRED 裡其他的
@@ -3758,7 +3760,7 @@ def _groq_post(messages: list, temperature=0.4, timeout=60,
     content = _re.sub(r"<think>[\s\S]*?</think>", "", content, flags=_re.IGNORECASE).strip()
     if not content.strip():
         # 空回應 → 嘗試換模型
-        avail = _groq_available_models()
+        avail = [m for m in _groq_available_models() if m not in _GROQ_EXCLUDE_COMPOUND]
         tried = {model}
         for fallback in _GROQ_PREFERRED + avail:
             if fallback in tried:
