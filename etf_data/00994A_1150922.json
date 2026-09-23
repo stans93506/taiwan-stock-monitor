@@ -181,15 +181,15 @@
       "weight": 0.67
     },
     {
-      "code": "3491",
-      "name": "昇達科",
-      "shares": 20000,
-      "weight": 0.64
-    },
-    {
       "code": "3665",
       "name": "貿聯-KY",
       "shares": 13000,
+      "weight": 0.64
+    },
+    {
+      "code": "3491",
+      "name": "昇達科",
+      "shares": 20000,
       "weight": 0.64
     },
     {
@@ -235,5 +235,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "14:05"
+  "fetch_time": "16:39"
 }
