@@ -55,15 +55,15 @@
       "weight": 3.8
     },
     {
-      "code": "2059",
-      "name": "川湖",
-      "shares": 14501,
-      "weight": 3.75
-    },
-    {
       "code": "3653",
       "name": "健策",
       "shares": 25000,
+      "weight": 3.75
+    },
+    {
+      "code": "2059",
+      "name": "川湖",
+      "shares": 14501,
       "weight": 3.75
     },
     {
@@ -235,15 +235,15 @@
       "weight": 0.35
     },
     {
-      "code": "6691",
-      "name": "洋基工程",
-      "shares": 20000,
-      "weight": 0.32
-    },
-    {
       "code": "3026",
       "name": "禾伸堂",
       "shares": 17000,
+      "weight": 0.32
+    },
+    {
+      "code": "6691",
+      "name": "洋基工程",
+      "shares": 20000,
       "weight": 0.32
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.03
     }
   ],
-  "fetch_time": "17:36"
+  "fetch_time": "18:06"
 }
