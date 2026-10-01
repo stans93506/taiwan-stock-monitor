@@ -205,15 +205,15 @@
       "weight": 0.48
     },
     {
-      "code": "3008",
-      "name": "大立光",
-      "shares": 3000,
-      "weight": 0.39
-    },
-    {
       "code": "2368",
       "name": "金像電",
       "shares": 16000,
+      "weight": 0.39
+    },
+    {
+      "code": "3008",
+      "name": "大立光",
+      "shares": 3000,
       "weight": 0.39
     },
     {
@@ -241,5 +241,5 @@
       "weight": 0.03
     }
   ],
-  "fetch_time": "13:38"
+  "fetch_time": "14:37"
 }
