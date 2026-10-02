@@ -91,15 +91,15 @@
       "weight": 2.51
     },
     {
-      "code": "2308",
-      "name": "台達電",
-      "shares": 58500,
-      "weight": 2.39
-    },
-    {
       "code": "3189",
       "name": "景碩",
       "shares": 105000,
+      "weight": 2.39
+    },
+    {
+      "code": "2308",
+      "name": "台達電",
+      "shares": 58500,
       "weight": 2.39
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.03
     }
   ],
-  "fetch_time": "17:37"
+  "fetch_time": "18:35"
 }
