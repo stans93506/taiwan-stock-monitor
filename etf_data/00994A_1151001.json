@@ -163,15 +163,15 @@
       "weight": 1.14
     },
     {
-      "code": "2481",
-      "name": "強茂",
-      "shares": 290000,
-      "weight": 1.12
-    },
-    {
       "code": "6239",
       "name": "力成",
       "shares": 175000,
+      "weight": 1.12
+    },
+    {
+      "code": "2481",
+      "name": "強茂",
+      "shares": 290000,
       "weight": 1.12
     },
     {
@@ -235,15 +235,15 @@
       "weight": 0.35
     },
     {
-      "code": "3026",
-      "name": "禾伸堂",
-      "shares": 17000,
-      "weight": 0.32
-    },
-    {
       "code": "6691",
       "name": "洋基工程",
       "shares": 20000,
+      "weight": 0.32
+    },
+    {
+      "code": "3026",
+      "name": "禾伸堂",
+      "shares": 17000,
       "weight": 0.32
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.03
     }
   ],
-  "fetch_time": "14:07"
+  "fetch_time": "15:38"
 }
