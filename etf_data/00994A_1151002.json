@@ -91,15 +91,15 @@
       "weight": 2.51
     },
     {
-      "code": "3189",
-      "name": "景碩",
-      "shares": 105000,
-      "weight": 2.39
-    },
-    {
       "code": "2308",
       "name": "台達電",
       "shares": 58500,
+      "weight": 2.39
+    },
+    {
+      "code": "3189",
+      "name": "景碩",
+      "shares": 105000,
       "weight": 2.39
     },
     {
@@ -163,15 +163,15 @@
       "weight": 1.17
     },
     {
-      "code": "2327",
-      "name": "國巨*",
-      "shares": 85000,
-      "weight": 1.15
-    },
-    {
       "code": "2449",
       "name": "京元電子",
       "shares": 180000,
+      "weight": 1.15
+    },
+    {
+      "code": "2327",
+      "name": "國巨*",
+      "shares": 85000,
       "weight": 1.15
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.03
     }
   ],
-  "fetch_time": "16:34"
+  "fetch_time": "18:05"
 }
