@@ -91,15 +91,15 @@
       "weight": 2.51
     },
     {
-      "code": "3189",
-      "name": "景碩",
-      "shares": 105000,
-      "weight": 2.39
-    },
-    {
       "code": "2308",
       "name": "台達電",
       "shares": 58500,
+      "weight": 2.39
+    },
+    {
+      "code": "3189",
+      "name": "景碩",
+      "shares": 105000,
       "weight": 2.39
     },
     {
@@ -193,15 +193,15 @@
       "weight": 0.51
     },
     {
-      "code": "3264",
-      "name": "欣銓",
-      "shares": 91000,
-      "weight": 0.48
-    },
-    {
       "code": "7769",
       "name": "鴻勁",
       "shares": 4000,
+      "weight": 0.48
+    },
+    {
+      "code": "3264",
+      "name": "欣銓",
+      "shares": 91000,
       "weight": 0.48
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.03
     }
   ],
-  "fetch_time": "08:37"
+  "fetch_time": "09:38"
 }
