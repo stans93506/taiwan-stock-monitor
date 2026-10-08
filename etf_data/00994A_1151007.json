@@ -193,15 +193,15 @@
       "weight": 0.52
     },
     {
-      "code": "7769",
-      "name": "鴻勁",
-      "shares": 4000,
-      "weight": 0.5
-    },
-    {
       "code": "3105",
       "name": "穩懋",
       "shares": 40000,
+      "weight": 0.5
+    },
+    {
+      "code": "7769",
+      "name": "鴻勁",
+      "shares": 4000,
       "weight": 0.5
     },
     {
