@@ -73,15 +73,15 @@
       "weight": 2.86
     },
     {
-      "code": "6669",
-      "name": "緯穎",
-      "shares": 55518,
-      "weight": 2.78
-    },
-    {
       "code": "2308",
       "name": "台達電",
       "shares": 66500,
+      "weight": 2.78
+    },
+    {
+      "code": "6669",
+      "name": "緯穎",
+      "shares": 55518,
       "weight": 2.78
     },
     {
@@ -241,5 +241,5 @@
       "weight": 0.29
     }
   ],
-  "fetch_time": "17:39"
+  "fetch_time": "08:06"
 }
