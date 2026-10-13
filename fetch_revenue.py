@@ -366,7 +366,7 @@ def fetch_revenue_moneydj(roc_year: int, month: int,
     year_str = str(roc_year)
     month_str = str(month)
     PAT = re.compile(
-        r'^(.+?)\s+' + re.escape(year_str) + r'年' + re.escape(month_str) +
+        r'^(.+?)(?:\s+' + re.escape(year_str) + r'年)?\s*' + re.escape(month_str) +
         r'月(?:合併)?營收(-?[\d.,]+)(億|萬|千|百萬|元)?(?:[^年]*年(增|減)([\d.,]+)%)?'
     )
 
