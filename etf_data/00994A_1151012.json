@@ -151,15 +151,15 @@
       "weight": 1.19
     },
     {
-      "code": "2368",
-      "name": "金像電",
-      "shares": 43000,
-      "weight": 1.17
-    },
-    {
       "code": "6239",
       "name": "力成",
       "shares": 175000,
+      "weight": 1.17
+    },
+    {
+      "code": "2368",
+      "name": "金像電",
+      "shares": 43000,
       "weight": 1.17
     },
     {
@@ -241,5 +241,5 @@
       "weight": 0.29
     }
   ],
-  "fetch_time": "14:09"
+  "fetch_time": "15:41"
 }
