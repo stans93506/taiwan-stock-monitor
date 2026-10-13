@@ -676,23 +676,27 @@ def fetch_limit_up(date_str: str = None) -> list:
     tpex_cnt = sum(1 for r in result if r["market"] == "上櫃")
     print(f"  [漲停] 共 {len(result)} 檔漲停（上市 {twse_cnt} / 上櫃 {tpex_cnt}）")
 
-    # 抓取 HiStock 分點 + 均買均賣（Playwright 登入，循序抓取）
-    if result:
-        codes = [r["code"] for r in result]
-        hs_data = fetch_all_histock(codes, date_str)
-        for row in result:
-            code = row["code"]
-            brokers = hs_data[code]["brokers"]
-            mp = hs_data[code]["mainprofit"]
-            for b in brokers:
-                avgs = mp.get(b["name"])
-                buy_avg  = (avgs[0] or 0) if avgs else 0
-                sell_avg = (avgs[1] or 0) if avgs else 0
-                b["buy_avg"]  = buy_avg  if buy_avg  > 0 else b["avg"]
-                b["sell_avg"] = sell_avg if sell_avg > 0 else b["avg"]
-            row["brokers"] = brokers
-        ok = sum(1 for r in result if r.get("brokers"))
-        print(f"  [HiStock] {ok}/{len(result)} 檔有分點資料")
+    # 分點抓取暫停（Cloudflare 封鎖 GitHub Actions IP）
+    # TODO: 待找到可行繞過方案後取消下方注解
+    # if result:
+    #     codes = [r["code"] for r in result]
+    #     hs_data = fetch_all_histock(codes, date_str)
+    #     for row in result:
+    #         code = row["code"]
+    #         brokers = hs_data[code]["brokers"]
+    #         mp = hs_data[code]["mainprofit"]
+    #         for b in brokers:
+    #             avgs = mp.get(b["name"])
+    #             buy_avg  = (avgs[0] or 0) if avgs else 0
+    #             sell_avg = (avgs[1] or 0) if avgs else 0
+    #             b["buy_avg"]  = buy_avg  if buy_avg  > 0 else b["avg"]
+    #             b["sell_avg"] = sell_avg if sell_avg > 0 else b["avg"]
+    #         row["brokers"] = brokers
+    #     ok = sum(1 for r in result if r.get("brokers"))
+    #     print(f"  [HiStock] {ok}/{len(result)} 檔有分點資料")
+    for row in result:
+        row["brokers"] = []
+    print(f"  [HiStock] 分點抓取已停用（Cloudflare 封鎖）")
 
     return result
 
