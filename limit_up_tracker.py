@@ -469,6 +469,8 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
                     print(f"  [HiStock] curl_cffi session 建立失敗: {_e}")
                     cf_session = None
 
+            _sa_blocked = False   # ScraperAPI 整批封鎖旗標（403/402 後跳過剩餘）
+            _zr_blocked = False   # ZenRows 整批封鎖旗標
             for i, code in enumerate(codes, 1):
                 try:
                     branch_url = (f"https://histock.tw/stock/branch.aspx"
@@ -477,7 +479,7 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
 
                     # 優先用 ScraperAPI（繞過 Cloudflare），失敗最多重試 2 次
                     _scraper_key = os.environ.get("SCRAPERAPI_KEY", "")
-                    if _scraper_key and not brokers:
+                    if _scraper_key and not brokers and not _sa_blocked:
                         import urllib.parse as _up
                         import urllib.request as _ur
                         _sa_url = (f"http://api.scraperapi.com?"
@@ -486,18 +488,23 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
                         for _attempt in range(3):
                             try:
                                 _time.sleep(_attempt * 3)
-                                with _ur.urlopen(_sa_url, timeout=90) as _r:
+                                with _ur.urlopen(_sa_url, timeout=20) as _r:
                                     _html = _r.read().decode("utf-8", errors="replace")
                                 if "Just a moment" not in _html:
                                     brokers = _parse_branch_html(_html)
                                 break
                             except Exception as _e:
+                                _e_str = str(_e)
+                                # 403/402 = 明確封鎖，整批跳過
+                                if "403" in _e_str or "402" in _e_str:
+                                    _sa_blocked = True
+                                    break
                                 if _attempt == 2:
                                     print(f"  [HiStock] ScraperAPI 失敗: {_e}")
 
                     # ScraperAPI 額度用完時 fallback 到 ZenRows
                     _zr_key = os.environ.get("ZENROWS_KEY", "")
-                    if _zr_key and not brokers:
+                    if _zr_key and not brokers and not _zr_blocked:
                         import urllib.parse as _up
                         import urllib.request as _ur
                         _zr_url = (f"https://api.zenrows.com/v1/"
@@ -505,13 +512,16 @@ def fetch_all_histock(codes: list, date_str: str) -> dict:
                                    f"&wait=2000"
                                    f"&url={_up.quote(branch_url, safe='')}")
                         try:
-                            with _ur.urlopen(_zr_url, timeout=90) as _r:
+                            with _ur.urlopen(_zr_url, timeout=20) as _r:
                                 _html = _r.read().decode("utf-8", errors="replace")
                             if "Just a moment" not in _html:
                                 brokers = _parse_branch_html(_html)
                             if not brokers:
                                 print(f"  [HiStock] ZenRows 回傳但無分點資料")
                         except Exception as _e:
+                            _e_str = str(_e)
+                            if "403" in _e_str or "402" in _e_str:
+                                _zr_blocked = True
                             print(f"  [HiStock] ZenRows 失敗: {_e}")
 
                     # ScraperAPI 失敗時用 curl_cffi
