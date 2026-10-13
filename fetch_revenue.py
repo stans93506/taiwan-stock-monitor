@@ -497,7 +497,8 @@ def fetch_revenue_moneydj(roc_year: int, month: int,
             if art.get("emerging"):
                 continue
             co_name = entry["co_name"]
-            code = art["code"] or nm_map.get(co_name, "")
+            code_from_article = art["code"]   # 從文章頁 (XXXX) 直接抓到，高可信度
+            code = code_from_article or nm_map.get(co_name, "")
             # 簡稱模糊比對：若完整名稱查不到，嘗試 nm_map 中有沒有以 co_name 開頭的 key
             if not code:
                 for k, v in nm_map.items():
@@ -506,7 +507,8 @@ def fetch_revenue_moneydj(roc_year: int, month: int,
                         break
             if not code:
                 continue
-            if listed_codes and code not in listed_codes:
+            # 白名單驗證：文章頁直接取得的代碼不需驗證，nm_map 推斷的才驗
+            if not code_from_article and listed_codes and code not in listed_codes:
                 continue
             if code in REV_SKIP_CODES:
                 continue
