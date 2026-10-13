@@ -175,11 +175,18 @@ LISTED_CODES_APIS = [
 ]
 
 def get_valid_codes() -> set:
-    """從官方月營收 API 取得合法上市+上櫃股票代碼，失敗時回傳空集合（不過濾）"""
+    """從官方月營收 API + t51sb01 取得合法上市+上櫃股票代碼，失敗時回傳空集合（不過濾）。
+    t187ap05 不含金融保險業，t51sb01 補全所有上市上櫃公司。"""
     codes = set()
     for url in REV_APIS.values():
         for r in fetch_json(url):
             c = str(r.get("公司代號") or "").strip()
+            if c:
+                codes.add(c)
+    # 補充 t51sb01（含金控、保險等不走月營收申報的公司）
+    for url in LISTED_CODES_APIS:
+        for r in fetch_json(url):
+            c = str(r.get("公司代號") or r.get("SecuritiesCompanyCode") or "").strip()
             if c:
                 codes.add(c)
     print(f"  上市+上櫃合法代碼：{len(codes)} 檔{'（API 失敗，略過過濾）' if not codes else ''}")
