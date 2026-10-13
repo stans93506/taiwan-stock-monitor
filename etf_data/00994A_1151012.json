@@ -73,15 +73,15 @@
       "weight": 2.86
     },
     {
-      "code": "2308",
-      "name": "台達電",
-      "shares": 66500,
-      "weight": 2.78
-    },
-    {
       "code": "6669",
       "name": "緯穎",
       "shares": 55518,
+      "weight": 2.78
+    },
+    {
+      "code": "2308",
+      "name": "台達電",
+      "shares": 66500,
       "weight": 2.78
     },
     {
@@ -151,15 +151,15 @@
       "weight": 1.19
     },
     {
-      "code": "6239",
-      "name": "力成",
-      "shares": 175000,
-      "weight": 1.17
-    },
-    {
       "code": "2368",
       "name": "金像電",
       "shares": 43000,
+      "weight": 1.17
+    },
+    {
+      "code": "6239",
+      "name": "力成",
+      "shares": 175000,
       "weight": 1.17
     },
     {
@@ -241,5 +241,5 @@
       "weight": 0.29
     }
   ],
-  "fetch_time": "09:20"
+  "fetch_time": "10:10"
 }
