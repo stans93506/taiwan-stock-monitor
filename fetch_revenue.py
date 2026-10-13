@@ -7471,21 +7471,30 @@ def fetch_t05st02() -> tuple:
             "MEETING_STEP": "", "MODEL": "", "ITEM": "",
             "step": "2", "off": "1",
         }
+        _MOPS_ERR = ("傳入的參數有錯", "找不到相關資料", "查無資料")
         for endpoint in ["ajax_t05st01", "ajax_t05st02"]:
             try:
                 resp = req_session.post(
                     f"{BASE_URL}/mops/web/{endpoint}", data=data, timeout=15, verify=False
                 )
                 raw = resp.content
+                html_str = None
+                text = None
                 for enc in ["utf-8", "cp950", "big5"]:
                     try:
                         html_str = raw.decode(enc)
                         text = BeautifulSoup(html_str, "html.parser").get_text("\n")
-                        return text, html_str
+                        break
                     except Exception:
                         pass
-                html_str = raw.decode("utf-8", errors="replace")
-                return BeautifulSoup(html_str, "html.parser").get_text("\n"), html_str
+                if html_str is None:
+                    html_str = raw.decode("utf-8", errors="replace")
+                    text = BeautifulSoup(html_str, "html.parser").get_text("\n")
+                # MOPS 回傳錯誤頁面時繼續嘗試下一個 endpoint
+                if text and any(e in text for e in _MOPS_ERR):
+                    continue
+                if text:
+                    return text, html_str
             except Exception:
                 continue
         return "", ""
@@ -7747,8 +7756,18 @@ def fetch_t05st02() -> tuple:
             time_s = p["time"].replace(":", "").replace("\xa0", "").strip()
             market = "上市" if p["typek"].strip() == "sii" else "上櫃"
 
+            # 診斷：印出關鍵識別參數，方便排查 MOPS 拒絕原因
+            if not p.get("seq_no") or not p.get("spoke_date") or not p.get("spoke_time"):
+                print(f"\n    [{code}] 警告：現增 detail 識別參數不完整 "
+                      f"seq_no={p.get('seq_no')!r} "
+                      f"spoke_date={p.get('spoke_date')!r} "
+                      f"spoke_time={p.get('spoke_time')!r}")
+
             text, _html = _fetch_detail(p)
             time.sleep(0.5)
+
+            if not text:
+                print(f"\n    [{code}] 現增 detail 無法取得公告原文")
 
             # 只保留第11款（現金增資新決議），過濾資金運用計畫變更(16款)等後續公告
             if text and re.search(r'符合條款\s*第\s*(\d+)\s*款', text):
