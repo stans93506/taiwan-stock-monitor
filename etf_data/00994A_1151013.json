@@ -109,15 +109,15 @@
       "weight": 2.15
     },
     {
-      "code": "6805",
-      "name": "富世達",
-      "shares": 37000,
-      "weight": 1.88
-    },
-    {
       "code": "3081",
       "name": "聯亞",
       "shares": 30000,
+      "weight": 1.88
+    },
+    {
+      "code": "6805",
+      "name": "富世達",
+      "shares": 37000,
       "weight": 1.88
     },
     {
@@ -175,15 +175,15 @@
       "weight": 0.84
     },
     {
-      "code": "2449",
-      "name": "京元電子",
-      "shares": 82000,
-      "weight": 0.58
-    },
-    {
       "code": "2327",
       "name": "國巨*",
       "shares": 42000,
+      "weight": 0.58
+    },
+    {
+      "code": "2449",
+      "name": "京元電子",
+      "shares": 82000,
       "weight": 0.58
     },
     {
@@ -199,15 +199,15 @@
       "weight": 0.51
     },
     {
-      "code": "6488",
-      "name": "環球晶",
-      "shares": 15000,
-      "weight": 0.35
-    },
-    {
       "code": "1560",
       "name": "中砂",
       "shares": 16000,
+      "weight": 0.35
+    },
+    {
+      "code": "6488",
+      "name": "環球晶",
+      "shares": 15000,
       "weight": 0.35
     },
     {
@@ -247,5 +247,5 @@
       "weight": 0.23
     }
   ],
-  "fetch_time": "16:12"
+  "fetch_time": "17:09"
 }
