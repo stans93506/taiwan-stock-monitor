@@ -199,15 +199,15 @@
       "weight": 0.51
     },
     {
-      "code": "2603",
-      "name": "長榮",
-      "shares": 58000,
-      "weight": 0.35
-    },
-    {
       "code": "1560",
       "name": "中砂",
       "shares": 16000,
+      "weight": 0.35
+    },
+    {
+      "code": "2603",
+      "name": "長榮",
+      "shares": 58000,
       "weight": 0.35
     },
     {
@@ -247,5 +247,5 @@
       "weight": 0.23
     }
   ],
-  "fetch_time": "13:38"
+  "fetch_time": "15:38"
 }
