@@ -818,23 +818,116 @@ def fetch_holdings_ctbcfund(etf_code: str, etf_id: str) -> dict | None:
     }
 
 
+def _fetch_megafund_cmoney_fallback(etf_code: str) -> dict | None:
+    """
+    CMoney 備援：megafunds.com.tw 被封鎖時（如 GitHub Actions IP），
+    改用 Playwright 攔截 CMoney /api/customReport/app/v2/dtno/JsonCsv
+    取得持股資料。
+    回傳格式與主源相同，nav_per_unit/nav_total/units 留 0（CMoney 不提供）。
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+
+    captured = None
+
+    def _on_response(response):
+        nonlocal captured
+        if captured is not None:
+            return
+        if "JsonCsv" not in response.url:
+            return
+        try:
+            data = response.json()
+            rows = data.get("rows") or []
+            if not rows or len(rows[0]) < 5:
+                return
+            # 確認第一欄是 8 位日期、第二欄是 4 位股票代號
+            if re.match(r"^\d{8}$", str(rows[0][0])) and re.match(r"^\d{4,5}$", str(rows[0][1])):
+                captured = data
+        except Exception:
+            pass
+
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled",
+                      "--ignore-certificate-errors"]
+            )
+            ctx = browser.new_context(
+                user_agent=HEADERS["User-Agent"], locale="zh-TW",
+                ignore_https_errors=True
+            )
+            page = ctx.new_page()
+            page.on("response", _on_response)
+            page.goto(
+                f"https://www.cmoney.tw/etf/tw/{etf_code}/fundholding",
+                timeout=30000, wait_until="domcontentloaded"
+            )
+            # 等待 API 回呼（最多 10 秒）
+            for _ in range(20):
+                if captured is not None:
+                    break
+                page.wait_for_timeout(500)
+            browser.close()
+    except Exception as e:
+        print(f"\n  [cmoney-fb] {etf_code} Playwright 失敗：{e}")
+        return None
+
+    if not captured:
+        print(f"\n  [cmoney-fb] {etf_code} 未取得持股資料")
+        return None
+
+    rows = captured.get("rows", [])
+    date_raw = str(rows[0][0])  # e.g. "20261014"
+    date_str = ""
+    if len(date_raw) == 8:
+        yr = int(date_raw[:4]) - 1911
+        date_str = f"{yr}/{date_raw[4:6]}/{date_raw[6:8]}"
+
+    holdings = []
+    for row in rows:
+        try:
+            code   = str(row[1]).strip()
+            name   = str(row[2]).strip()
+            weight = float(row[3])
+            shares = int(row[4])
+            holdings.append({"code": code, "name": name, "shares": shares, "weight": weight})
+        except Exception:
+            continue
+
+    return {
+        "etf_code":     etf_code,
+        "etf_name":     ETF_CONFIG.get(etf_code, {}).get("name", etf_code),
+        "date":         date_str,
+        "nav_per_unit": 0.0,
+        "nav_total":    0.0,
+        "units":        0.0,
+        "holdings":     holdings,
+    }
+
+
 def fetch_holdings_megafund(etf_code: str, page_id: int) -> dict | None:
     """
     從兆豐投信 megafunds.com.tw 取得 ETF 持股。
     GET etf_product.aspx?id={page_id} 解析 HTML。
+    若主源回 403（GitHub Actions IP 被封），自動切換至 CMoney 備援。
     """
     url = f"https://www.megafunds.com.tw/MEGA/etf/etf_product.aspx?id={page_id}"
     h = {"User-Agent": HEADERS["User-Agent"]}
 
+    html = None
     try:
         r = requests.get(url, headers=h, timeout=20, verify=False)
         if r.status_code != 200:
-            print(f"\n  [megafund] {etf_code} HTTP {r.status_code}")
-            return None
+            print(f"\n  [megafund] {etf_code} HTTP {r.status_code}，切換 CMoney 備援...", end="", flush=True)
+            return _fetch_megafund_cmoney_fallback(etf_code)
         html = r.text
     except Exception as e:
-        print(f"\n  [megafund] {etf_code} 連線失敗：{e}")
-        return None
+        print(f"\n  [megafund] {etf_code} 連線失敗：{e}，切換 CMoney 備援...", end="", flush=True)
+        return _fetch_megafund_cmoney_fallback(etf_code)
 
     # 日期
     m_date = re.search(r'資料來源：兆豐投信，(\d{4}/\d{2}/\d{2})', html)
@@ -870,6 +963,11 @@ def fetch_holdings_megafund(etf_code: str, page_id: int) -> dict | None:
             holdings.append({"code": code, "name": name.strip(), "shares": shares, "weight": weight})
         except Exception:
             continue
+
+    # 主源取到但持股為空 → 可能是 HTML 結構改變，改用備援
+    if not holdings:
+        print(f"\n  [megafund] {etf_code} 主源持股為空，切換 CMoney 備援...", end="", flush=True)
+        return _fetch_megafund_cmoney_fallback(etf_code)
 
     return {
         "etf_code":     etf_code,
