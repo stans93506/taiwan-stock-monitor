@@ -109,15 +109,15 @@
       "weight": 2.15
     },
     {
-      "code": "6805",
-      "name": "富世達",
-      "shares": 37000,
-      "weight": 1.88
-    },
-    {
       "code": "3081",
       "name": "聯亞",
       "shares": 30000,
+      "weight": 1.88
+    },
+    {
+      "code": "6805",
+      "name": "富世達",
+      "shares": 37000,
       "weight": 1.88
     },
     {
@@ -247,5 +247,5 @@
       "weight": 0.23
     }
   ],
-  "fetch_time": "09:08"
+  "fetch_time": "09:40"
 }
