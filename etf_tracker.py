@@ -35,7 +35,7 @@ ETF_CONFIG = {
     "00993A": {"name": "主動安聯台灣",        "source": "allianzgi",  "param": "E0002"},
     "00984A": {"name": "主動安聯台灣高息",    "source": "allianzgi",  "param": "E0001"},
     "00995A": {"name": "主動中信台灣卓越",    "source": "ctbcfund",   "param": "00995A"},
-    "00996A": {"name": "主動兆豐台灣要收",    "source": "megafund",   "param": 23},
+    "00996A": {"name": "主動兆豐台灣豐收",    "source": "megafund",   "param": 23},
     "00987A": {"name": "主動台新優勢成長",    "source": "tsit",       "param": "00987A"},
     "00994A": {"name": "主動第一金台股優選",  "source": "fsitc",      "param": "182"},
     "00401A": {"name": "主動摩根台灣鑫收",   "source": "jpmorgan",   "param": "TW00000401A1"},
