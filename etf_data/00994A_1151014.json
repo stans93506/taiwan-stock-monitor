@@ -79,15 +79,15 @@
       "weight": 2.6
     },
     {
-      "code": "2059",
-      "name": "川湖",
-      "shares": 11001,
-      "weight": 2.55
-    },
-    {
       "code": "3189",
       "name": "景碩",
       "shares": 105000,
+      "weight": 2.55
+    },
+    {
+      "code": "2059",
+      "name": "川湖",
+      "shares": 11001,
       "weight": 2.55
     },
     {
@@ -205,12 +205,6 @@
       "weight": 0.52
     },
     {
-      "code": "2603",
-      "name": "長榮",
-      "shares": 58000,
-      "weight": 0.35
-    },
-    {
       "code": "6488",
       "name": "環球晶",
       "shares": 15000,
@@ -220,6 +214,12 @@
       "code": "1560",
       "name": "中砂",
       "shares": 16000,
+      "weight": 0.35
+    },
+    {
+      "code": "2603",
+      "name": "長榮",
+      "shares": 58000,
       "weight": 0.35
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.24
     }
   ],
-  "fetch_time": "14:35"
+  "fetch_time": "15:08"
 }
