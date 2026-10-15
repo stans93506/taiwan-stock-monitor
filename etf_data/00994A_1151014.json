@@ -211,15 +211,15 @@
       "weight": 0.35
     },
     {
-      "code": "6488",
-      "name": "環球晶",
-      "shares": 15000,
-      "weight": 0.35
-    },
-    {
       "code": "1560",
       "name": "中砂",
       "shares": 16000,
+      "weight": 0.35
+    },
+    {
+      "code": "6488",
+      "name": "環球晶",
+      "shares": 15000,
       "weight": 0.35
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.24
     }
   ],
-  "fetch_time": "16:08"
+  "fetch_time": "16:38"
 }
