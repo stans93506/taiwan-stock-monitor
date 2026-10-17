@@ -175,15 +175,15 @@
       "weight": 0.68
     },
     {
-      "code": "2303",
-      "name": "聯電",
-      "shares": 180000,
-      "weight": 0.59
-    },
-    {
       "code": "2327",
       "name": "國巨*",
       "shares": 42000,
+      "weight": 0.59
+    },
+    {
+      "code": "2303",
+      "name": "聯電",
+      "shares": 180000,
       "weight": 0.59
     },
     {
@@ -205,15 +205,15 @@
       "weight": 0.48
     },
     {
-      "code": "1560",
-      "name": "中砂",
-      "shares": 16000,
-      "weight": 0.35
-    },
-    {
       "code": "6691",
       "name": "洋基工程",
       "shares": 20000,
+      "weight": 0.35
+    },
+    {
+      "code": "1560",
+      "name": "中砂",
+      "shares": 16000,
       "weight": 0.35
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "18:34"
+  "fetch_time": "19:05"
 }
