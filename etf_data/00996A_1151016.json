@@ -2,9 +2,9 @@
   "etf_code": "00996A",
   "etf_name": "主動兆豐台灣豐收",
   "date": "115/10/16",
-  "nav_per_unit": 0.0,
-  "nav_total": 0.0,
-  "units": 0.0,
+  "nav_per_unit": 14.21,
+  "nav_total": 5760719790.0,
+  "units": 405399000.0,
   "holdings": [
     {
       "code": "2330",
@@ -325,5 +325,5 @@
       "weight": 0.03
     }
   ],
-  "fetch_time": "07:33"
+  "fetch_time": "08:04"
 }
