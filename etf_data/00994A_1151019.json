@@ -211,15 +211,15 @@
       "weight": 0.33
     },
     {
-      "code": "6510",
-      "name": "精測",
-      "shares": 4000,
-      "weight": 0.32
-    },
-    {
       "code": "3264",
       "name": "欣銓",
       "shares": 49000,
+      "weight": 0.32
+    },
+    {
+      "code": "6510",
+      "name": "精測",
+      "shares": 4000,
       "weight": 0.32
     },
     {
@@ -247,5 +247,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "17:50"
+  "fetch_time": "18:05"
 }
