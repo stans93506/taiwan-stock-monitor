@@ -18,10 +18,24 @@ CACHE_FILE  = "etf_perf_cache.json"
 OUTPUT_HTML = "etf_performance.html"
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 
-# 要追蹤的 ETF（之後可在這裡新增）
+def _active_etfs() -> list:
+    """主動 ETF 清單直接取自 etf_tracker.py 的 ETF_CONFIG（以 AST 解析，免載入其相依套件）"""
+    import ast
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "etf_tracker.py")
+    try:
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "ETF_CONFIG" for t in node.targets):
+                cfg = ast.literal_eval(node.value)
+                return [{"code": c, "name": v["name"], "start": "2024-01-01"} for c, v in cfg.items()]
+    except Exception as e:
+        print(f"  ⚠️ 讀取 etf_tracker ETF_CONFIG 失敗：{e}")
+    return []
+
+# 要追蹤的 ETF；顏色於頁面依勾選順序分配
 ETF_LIST = [
-    {"code": "0050", "name": "元大台灣50",  "color": "#4a9eff", "start": "2003-06-30"},
-]
+    {"code": "0050", "name": "元大台灣50", "start": "2003-06-30"},
+] + _active_etfs()
 
 # 市場指數
 # TWII：Yahoo Finance 抓價格指數，僅當交易日曆（in_chart=False 不顯示）
@@ -108,38 +122,34 @@ def update_etf(code: str, name: str, start: str, cache: dict) -> dict:
     today = date.today().strftime("%Y-%m-%d")
     if fetch_from > today:
         print(f"  [{code}] 已是最新（{prices[-1][0] if prices else '-'}）")
-        if "splits" not in ec:
-            ec["splits"] = fetch_splits(code, start)
-        cache[code] = ec
-        return cache
+    else:
+        # 股價（增量）
+        print(f"  [{code}] 抓股價 {fetch_from}~{today}...", end="", flush=True)
+        raw_p = finmind_fetch("TaiwanStockPrice", code, fetch_from)
+        new_p = [[r["date"], float(r["close"])] for r in raw_p if float(r.get("close") or 0) > 0]
+        print(f" +{len(new_p)} 筆")
+        seen = {p[0] for p in prices}
+        for p in new_p:
+            if p[0] not in seen:
+                prices.append(p)
+                seen.add(p[0])
+        prices.sort(key=lambda x: x[0])
 
-    # 股價（增量）
-    print(f"  [{code}] 抓股價 {fetch_from}~{today}...", end="", flush=True)
-    raw_p = finmind_fetch("TaiwanStockPrice", code, fetch_from)
-    new_p = [[r["date"], float(r["close"])] for r in raw_p if float(r.get("close") or 0) > 0]
-    print(f" +{len(new_p)} 筆")
-
-    seen = {p[0] for p in prices}
-    for p in new_p:
-        if p[0] not in seen:
-            prices.append(p)
-            seen.add(p[0])
-    prices.sort(key=lambda x: x[0])
-
-    # 配息（全量，資料量小）
-    print(f"  [{code}] 抓配息...", end="", flush=True)
-    raw_d = finmind_fetch("TaiwanStockDividend", code, start)
-    divs = {}
-    for r in raw_d:
-        cash = float(r.get("CashEarningsDistribution") or 0)
-        ex   = (r.get("CashExDividendTradingDate") or "").strip()
-        if cash > 0 and re.match(r"\d{4}-\d{2}-\d{2}", ex):
-            divs[ex] = divs.get(ex, 0.0) + cash
-    print(f" {len(divs)} 筆")
+    # 配息、分割（全量但資料量小；每天只抓一次，減少 FinMind 請求）
+    if ec.get("meta_date") != today or "splits" not in ec:
+        print(f"  [{code}] 抓配息...", end="", flush=True)
+        divs = {}
+        for r in finmind_fetch("TaiwanStockDividend", code, start):
+            cash = float(r.get("CashEarningsDistribution") or 0)
+            ex   = (r.get("CashExDividendTradingDate") or "").strip()
+            if cash > 0 and re.match(r"\d{4}-\d{2}-\d{2}", ex):
+                divs[ex] = divs.get(ex, 0.0) + cash
+        print(f" {len(divs)} 筆")
+        ec["divs"]      = divs
+        ec["splits"]    = fetch_splits(code, start)
+        ec["meta_date"] = today
 
     ec["prices"] = prices
-    ec["divs"]   = divs
-    ec["splits"] = fetch_splits(code, start)
     ec["name"]   = name
     cache[code]  = ec
     return cache
@@ -286,13 +296,14 @@ def generate_html(cache: dict):
         if len(px) >= 2:
             ref = px[-2][1] / ec.get("splits", {}).get(px[-1][0], 1.0) - ec.get("divs", {}).get(px[-1][0], 0.0)
             chg = round((px[-1][1] / ref - 1) * 100, 2) if ref > 0 else None
+        if not px:
+            continue
         chart_data.append({
             "code":   code,
             "name":   etf["name"],
-            "color":  etf["color"],
-            "close":  px[-1][1] if px else None,
+            "close":  px[-1][1],
             "chg":    chg,
-            "listed": etf["start"],
+            "listed": px[0][0],
             "series": tr,
         })
     for idx in INDEX_LIST:
@@ -412,7 +423,11 @@ body{background:var(--bg);color:var(--txt);font-family:"Microsoft JhengHei","Pin
 .ret-lbl{font-size:13px;color:var(--txt2)}
 .ret-val{font-size:15px;font-weight:700}
 /* ETF table */
-.tbl-bar{display:flex;justify-content:flex-end;margin:18px 0 8px}
+.tbl-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:18px 0 8px}
+.sel-note{font-size:13px;color:var(--txt2);transition:color .2s}
+.sel-note.full{color:var(--gold)} .sel-note.flash{color:var(--neg)}
+.etf-tbl input:disabled{cursor:not-allowed;opacity:.35}
+.sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
 .more-btn{padding:6px 12px;background:var(--bg2);border:1px solid var(--bdr);border-radius:6px;color:var(--txt);font-size:13px;cursor:pointer;font-family:inherit}
 .more-btn:hover{background:var(--bg3)}
 .tbl-wrap{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;overflow-x:auto}
@@ -470,7 +485,7 @@ body{background:var(--bg);color:var(--txt);font-family:"Microsoft JhengHei","Pin
   <div class="ret-list" id="retList"></div>
 </div>
 
-<div class="tbl-bar"><button class="more-btn" id="moreBtn">更多期間（3/5/10年、年化）▸</button></div>
+<div class="tbl-bar"><span class="sel-note" id="selNote"></span><button class="more-btn" id="moreBtn">更多期間（3/5/10年、年化）▸</button></div>
 <div class="tbl-wrap">
   <table class="etf-tbl" id="etfTbl">
     <thead><tr id="etfHead"></tr></thead>
@@ -485,7 +500,23 @@ const ETF_DATA = '__CHART_DATA__';
 /* ── 狀態 ─────────────────────────────────────────────────────────── */
 let activeRange = '1y';
 let chartType   = 'line';
-let activeSet   = new Set(ETF_DATA.map(e => e.code));
+const MAX_SEL = 8;
+const PALETTE = ['#4a9eff', '#f0883e', '#3fb950', '#d2a8ff', '#ff7b72', '#f2cc60', '#56d4dd', '#ff9bce'];
+let activeSet   = new Set(ETF_DATA.filter(e => e.is_index || e.code === '0050').map(e => e.code));
+const colorOf   = new Map();   // ETF 代號 → 色盤顏色（依勾選順序分配，取消即釋放）
+
+function syncColors() {
+  for (const c of [...colorOf.keys()]) if (!activeSet.has(c)) colorOf.delete(c);
+  for (const e of ETF_DATA) {
+    if (e.is_index) continue;
+    if (activeSet.has(e.code) && !colorOf.has(e.code)) {
+      const used = new Set(colorOf.values());
+      colorOf.set(e.code, PALETTE.find(p => !used.has(p)) || PALETTE[0]);
+    }
+    e.color = colorOf.get(e.code) || '#8b949e';
+  }
+}
+function selCount() { return ETF_DATA.filter(e => !e.is_index && activeSet.has(e.code)).length; }
 let mainChart   = null;
 
 // Navigator state
@@ -747,15 +778,17 @@ function initNav() {
   navCtx.scale(dpr, dpr);
 
   // Precompute scaled points for each ETF
+  // 依日期定位（上市較晚的 ETF 只畫在其上市後區段）
+  const dIdx = new Map(allDates.map((d, i) => [d, i]));
+  const N = Math.max(1, allDates.length - 1);
   navPoints = ETF_DATA.map(etf => {
     const vals = etf.series.map(([, v]) => v);
     const mn = Math.min(...vals), mx = Math.max(...vals), rng = mx - mn || 1;
-    const n  = etf.series.length;
     return {
-      color: etf.color,
+      etf,
       code:  etf.code,
-      pts:   etf.series.map(([, v], i) => ({
-        fx: i / (n - 1),
+      pts:   etf.series.map(([d, v]) => ({
+        fx: dIdx.get(d) / N,
         fy: 1 - (v - mn) / rng,
       })),
     };
@@ -785,7 +818,7 @@ function drawNav() {
   for (const nd of navPoints) {
     if (!activeSet.has(nd.code)) continue;
     navCtx.beginPath();
-    navCtx.strokeStyle = nd.color;
+    navCtx.strokeStyle = nd.etf.color;
     navCtx.lineWidth = 1.5;
     navCtx.globalAlpha = .7;
     for (let i = 0; i < nd.pts.length; i++) {
@@ -951,7 +984,7 @@ function renderChips() {
   });
 }
 
-function onSelChange() { renderChips(); renderTable(); updateAll(); }
+function onSelChange() { syncColors(); renderChips(); renderTable(); updateAll(); }
 
 /* ── ETF 表格 ─────────────────────────────────────────────────────── */
 const TBL_COLS = [
@@ -1003,6 +1036,10 @@ function renderTable() {
     for (const k of ['ytd', '1m', '3m', '6m', '1y', '3y', '5y', '10y', 'all']) r[k] = retFor(e, k);
     return r;
   });
+  const n = selCount(), full = n >= MAX_SEL;
+  const note = document.getElementById('selNote');
+  note.textContent = `已選 ${n} / ${MAX_SEL} 檔${full ? '（已達上限，取消勾選後可再選）' : ''}`;
+  note.classList.toggle('full', full);
   const {k, dir} = tblSort;
   rows.sort((a, b) => {
     const x = a[k], y = b[k];
@@ -1019,14 +1056,23 @@ function renderTable() {
   document.getElementById('etfBody').innerHTML = rows.map((r, i) => '<tr>' + TBL_COLS.map(c => {
     const more = c.more ? ' more' : '';
     switch (c.k) {
-      case 'sel':  return `<td class="c"><input type="checkbox" data-code="${r.code}"${activeSet.has(r.code) ? ' checked' : ''}></td>`;
+      case 'sel': {
+        const on = activeSet.has(r.code);
+        return `<td class="c"><input type="checkbox" data-code="${r.code}"${on ? ' checked' : ''}${!on && full ? ' disabled title="最多同時比較 ' + MAX_SEL + ' 檔"' : ''}></td>`;
+      }
       case 'idx':  return `<td class="c muted">${i + 1}</td>`;
-      case 'code': return `<td class="l"><span class="code">${r.code}</span><span class="nm">${r.etf.name}</span></td>`;
+      case 'code': return `<td class="l">${activeSet.has(r.code) ? `<span class="sw" style="background:${r.etf.color}"></span>` : ''}<span class="code">${r.code}</span><span class="nm">${r.etf.name}</span></td>`;
       case 'close': return `<td>${r.close ?? '—'}</td>`;
       case 'listed': return `<td>${fmt(r.listed)}</td>`;
       default:     return `<td class="${more.trim()}">${fmtPct(r[c.k])}</td>`;
     }
   }).join('') + '</tr>').join('');
+}
+
+function flashSelNote() {
+  const note = document.getElementById('selNote');
+  note.classList.add('flash');
+  setTimeout(() => note.classList.remove('flash'), 900);
 }
 
 function initTable() {
@@ -1040,6 +1086,11 @@ function initTable() {
   document.getElementById('etfBody').addEventListener('change', e => {
     if (e.target.type !== 'checkbox') return;
     const c = e.target.dataset.code;
+    if (e.target.checked && selCount() >= MAX_SEL) {
+      e.target.checked = false;
+      flashSelNote();
+      return;
+    }
     e.target.checked ? activeSet.add(c) : activeSet.delete(c);
     onSelChange();
   });
@@ -1075,6 +1126,7 @@ function init() {
   ETF_DATA.forEach(e => e.series.forEach(([d]) => dateSet.add(d)));
   allDates = Array.from(dateSet).sort();
 
+  syncColors();
   renderChips();
 
   // Range buttons
