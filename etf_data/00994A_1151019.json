@@ -151,15 +151,15 @@
       "weight": 0.88
     },
     {
-      "code": "2603",
-      "name": "長榮",
-      "shares": 128000,
-      "weight": 0.84
-    },
-    {
       "code": "2308",
       "name": "台達電",
       "shares": 20500,
+      "weight": 0.84
+    },
+    {
+      "code": "2603",
+      "name": "長榮",
+      "shares": 128000,
       "weight": 0.84
     },
     {
@@ -247,5 +247,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "19:38"
+  "fetch_time": "11:36"
 }
