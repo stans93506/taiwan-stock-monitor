@@ -1369,9 +1369,9 @@ def run_all(force_fetch: bool = False) -> dict[str, dict]:
             else:
                 today_data = fetch_holdings(code, param)
             if not today_data or not today_data["holdings"]:
-                print(" ❌ 無資料")
-                continue
-            save_snapshot(today_data)
+                print(" ⚠ 抓取失敗，嘗試舊快照", end="")
+            else:
+                save_snapshot(today_data)
 
         snapshots = load_latest_snapshots(code, 2)
         if not snapshots:
