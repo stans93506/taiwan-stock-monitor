@@ -83,6 +83,17 @@ def save_cache(cache: dict):
 
 # ── 資料更新 ──────────────────────────────────────────────────────────────
 
+def fetch_splits(code: str, start: str) -> dict:
+    """分割／反分割：{date: 前價/後價}"""
+    splits = {}
+    for r in finmind_fetch("TaiwanStockSplitPrice", code, start):
+        b, a = float(r.get("before_price") or 0), float(r.get("after_price") or 0)
+        if b > 0 and a > 0:
+            splits[r["date"]] = round(b / a, 2)
+    print(f"  [{code}] 分割 {len(splits)} 筆 {splits if splits else ''}")
+    return splits
+
+
 def update_etf(code: str, name: str, start: str, cache: dict) -> dict:
     ec = cache.get(code, {"prices": [], "divs": []})
     prices = ec.get("prices", [])
@@ -97,6 +108,8 @@ def update_etf(code: str, name: str, start: str, cache: dict) -> dict:
     today = date.today().strftime("%Y-%m-%d")
     if fetch_from > today:
         print(f"  [{code}] 已是最新（{prices[-1][0] if prices else '-'}）")
+        if "splits" not in ec:
+            ec["splits"] = fetch_splits(code, start)
         cache[code] = ec
         return cache
 
@@ -126,6 +139,7 @@ def update_etf(code: str, name: str, start: str, cache: dict) -> dict:
 
     ec["prices"] = prices
     ec["divs"]   = divs
+    ec["splits"] = fetch_splits(code, start)
     ec["name"]   = name
     cache[code]  = ec
     return cache
@@ -238,19 +252,21 @@ def update_index(idx: dict, cache: dict) -> dict:
 
 # ── 計算含息報酬 ──────────────────────────────────────────────────────────
 
-def compute_tr(prices: list, divs: dict) -> list:
+def compute_tr(prices: list, divs: dict, splits: dict = None) -> list:
     """
     prices : [[date_str, close], ...]
     divs   : {ex_date_str: cash_amount}
+    splits : {split_date_str: 前價/後價}，如 1 拆 4 = 4.0
     return : [[date_str, tr_value], ...], tr[0] = 100
     """
+    splits = splits or {}
     result = []
     tr     = 100.0
     prev   = None
     for date_s, close in prices:
         div = divs.get(date_s, 0.0)
         if prev is not None and prev > 0:
-            tr = tr * (close + div) / prev
+            tr = tr * (close + div) / (prev / splits.get(date_s, 1.0))
         result.append([date_s, round(tr, 4)])
         prev = close
     return result
@@ -264,7 +280,7 @@ def generate_html(cache: dict):
         if code not in cache:
             continue
         ec = cache[code]
-        tr = compute_tr(ec["prices"], ec.get("divs", {}))
+        tr = compute_tr(ec["prices"], ec.get("divs", {}), ec.get("splits", {}))
         chart_data.append({
             "code":  code,
             "name":  etf["name"],
@@ -865,7 +881,7 @@ function updatePeriod(sd, ed, rnglbl) {
     const retDot = etf.is_index
       ? `<div class="ret-dot" style="background:transparent;border:2px dashed ${etf.color};border-radius:2px"></div>`
       : `<div class="ret-dot" style="background:${etf.color}"></div>`;
-    const retLbl = etf.is_index ? `${etf.name}<span style="font-size:10px;color:var(--txt2);margin-left:3px">(未含息)</span>` : `${etf.code} ${etf.name}`;
+    const retLbl = etf.is_index ? `${etf.name}<span style="font-size:10px;color:var(--txt2);margin-left:3px">(含息)</span>` : `${etf.code} ${etf.name}`;
     html += `<div class="ret-item">
       ${retDot}
       <span class="ret-lbl">${retLbl}</span>
