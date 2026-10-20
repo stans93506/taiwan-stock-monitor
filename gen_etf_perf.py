@@ -204,23 +204,28 @@ def update_index(idx: dict, cache: dict) -> dict:
             print(f"  [{code}] 尚無 TWII 日曆，請先更新 TWII")
             cache[code] = ec
             return cache
-        last_cached = prices[-1][0] if prices else ""
-        to_fetch = [d for d in twii_dates if d > last_cached]
-        if not to_fetch:
+        seen = {p[0] for p in prices}
+        # 缺口填補：找 TWII 有但 TWIIR 缺的日期，從最新往舊優先補（確保近期先完整）
+        missing = sorted([d for d in twii_dates if d not in seen], reverse=True)
+        if not missing:
             print(f"  [{code}] 已是最新（{prices[-1][0] if prices else '-'}）")
             cache[code] = ec
             return cache
-        print(f"  [{code}] 抓報酬指數 {to_fetch[0]}~{to_fetch[-1]}（{len(to_fetch)} 筆）...", end="", flush=True)
-        seen = {p[0] for p in prices}
+        MAX_PER_RUN = 300   # 每次最多補 300 筆，避免 TWSE 限流
+        to_fetch = missing[:MAX_PER_RUN]
+        print(f"  [{code}] 補缺口 {len(to_fetch)} 筆（共缺 {len(missing)} 筆）...", end="", flush=True)
         new_count = 0
         for i, d in enumerate(to_fetch):
             val = fetch_twse_tr_index(d)
-            if val is not None and d not in seen:
+            if val is None:
+                time.sleep(5)
+                val = fetch_twse_tr_index(d)   # retry once
+            if val is not None:
                 prices.append([d, val])
                 seen.add(d)
                 new_count += 1
             if i < len(to_fetch) - 1:
-                time.sleep(0.12)
+                time.sleep(1.5)
         prices.sort(key=lambda x: x[0])
         print(f" +{new_count} 筆")
         ec["prices"] = prices

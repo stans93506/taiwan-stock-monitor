@@ -1927,6 +1927,87 @@ def fetch_prev_quarter_t164sb04(df_qtr: pd.DataFrame, force_prev_label: str = No
     return prev_data
 
 
+YEAR_SINGLES_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_year_singles_cache.json")
+
+
+def fetch_year_singles(codes: list, roc_year: int, need_qs: list) -> dict:
+    """t163sb15 取該年各季累計值，換算單季。
+    回傳 {code: {"115Q1": {"single": {...}, "cum": {...}}, ...}}；結果寫入 cache，
+    已齊全者不重查，不齊全者當天只查一次。"""
+    try:
+        with open(YEAR_SINGLES_CACHE_FILE, "r", encoding="utf-8") as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+    today = datetime.now().strftime("%Y-%m-%d")
+    labels = [f"{roc_year}Q{q}" for q in need_qs]
+
+    def _complete(e):
+        return (e and e.get("year") == roc_year
+                and all(l in e.get("q", {}) for l in labels))
+
+    todo = [c for c in codes
+            if not _complete(cache.get(c))
+            and not (cache.get(c, {}).get("year") == roc_year and cache[c].get("fetched") == today)]
+    if todo:
+        print(f"  t163sb15 補今年各季單季值 {len(todo)} 家...", end="", flush=True)
+        s = _mops_session(HEADERS["User-Agent"])
+        url = "https://mopsov.twse.com.tw/mops/web/ajax_t163sb15"
+        fields = [("rev", "營業收入"), ("gross", "營業毛利"), ("oper", "營業利益"),
+                  ("pretax", "稅前淨利"), ("eps", "基本每股盈餘")]
+        ok = 0
+        for code in todo:
+            try:
+                form = {"encodeURIComponent": "1", "step": "1", "firstin": "1",
+                        "co_id": code, "year": str(roc_year)}
+                html = s.post(url, data=form, timeout=15, verify=False).text
+                if "詳細資料" in html and "基本每股盈餘" not in html:
+                    html = s.post(url, data=form | {"step": "2", "firstin": "0"},
+                                  timeout=15, verify=False).text
+                cum = {}
+                for tr in BeautifulSoup(html, "html.parser").select("table tr"):
+                    cells = tr.find_all(["th", "td"])
+                    if len(cells) < 2:
+                        continue
+                    name = cells[0].get_text(strip=True)
+                    for k, kw in fields:
+                        if kw in name and k not in cum:
+                            cum[k] = [_parse_num(c.get_text(strip=True)) for c in cells[1:5]]
+                            break
+                qd = {}
+                for qi in range(4):
+                    cq = {k: (v[qi] if qi < len(v) else None) for k, v in cum.items()}
+                    if cq.get("eps") is None and cq.get("rev") is None:
+                        break
+                    pq = ({k: (v[qi - 1] if qi - 1 < len(v) else None) for k, v in cum.items()}
+                          if qi else {})
+                    sg = {}
+                    for k in ("rev", "gross", "oper", "pretax", "eps"):
+                        a, b = cq.get(k), pq.get(k) if qi else 0
+                        sg[k] = (round(a - b, 2) if k == "eps" else a - b) \
+                            if a is not None and b is not None else None
+                    rv, pt, op = sg["rev"], sg["pretax"], sg["oper"]
+                    sg["other"] = pt - op if pt is not None and op is not None else None
+                    sg["gr"]  = round(sg["gross"] / rv * 100, 2) if rv and sg["gross"] is not None else None
+                    sg["or_"] = round(op / rv * 100, 2) if rv and op is not None else None
+                    sg["xr"]  = round((pt - op) / abs(pt) * 100, 2) if pt and op is not None else None
+                    qd[f"{roc_year}Q{qi + 1}"] = {"single": sg, "cum": cq}
+                cache[code] = {"year": roc_year, "fetched": today, "q": qd}
+                if qd:
+                    ok += 1
+            except Exception:
+                pass
+            time.sleep(0.3)
+        print(f" {ok}/{len(todo)} 家")
+        try:
+            with open(YEAR_SINGLES_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False)
+        except Exception as e:
+            print(f"  ⚠️ year singles cache 寫入失敗：{e}")
+    return {c: cache[c]["q"] for c in codes
+            if cache.get(c, {}).get("year") == roc_year and cache[c].get("q")}
+
+
 def _build_prev_from_qtr(df_all_qtr: pd.DataFrame) -> dict:
     """
     從 df_qtr（含今日+歷史）直接取得上季對比資料。
@@ -5407,32 +5488,32 @@ $(document).ready(function() {{
         +'以下數字由 AI 自動從公告原文提取並推算，資料來源包含本站資料庫與公告原文，'
         +'均可能存在解析錯誤，請務必對照下方原文及公開資訊觀測站查證。</div>';
 
-      // 數字表格（左：本季 cLbl，右：上季 pLbl）
+      // 數字表格：本季 + 今年各前季單季值（hist 由新到舊）；無 hist 時退回上季欄
+      var COLS = [[cLbl, d.curr]].concat(
+        (d.hist && d.hist.length) ? d.hist : [[pLbl, d.prev]]);
       var ITEMS = [
-        ['EPS',         d.curr.eps,    d.prev.eps,    'eps'],
-        ['營收(千)',    d.curr.rev,    d.prev.rev,    'num'],
-        ['毛利(千)',    d.curr.gross,  d.prev.gross,  'num'],
-        ['營益(千)',    d.curr.oper,   d.prev.oper,   'num'],
-        ['稅前(千)',    d.curr.pretax, d.prev.pretax, 'num'],
-        ['業外(千)',    d.curr.other,  d.prev.other,  'num'],
-        ['毛利率',      d.curr.gr,     d.prev.gr,     'pct'],
-        ['營益率',      d.curr.or_,    d.prev.or_,    'pct'],
-        ['業外估稅前%', d.curr.xr,    d.prev.xr,     'pct'],
+        ['EPS','eps','eps'], ['營收(千)','rev','num'], ['毛利(千)','gross','num'],
+        ['營益(千)','oper','num'], ['稅前(千)','pretax','num'], ['業外(千)','other','num'],
+        ['毛利率','gr','pct'], ['營益率','or_','pct'], ['業外估稅前%','xr','pct'],
       ];
       var tRows = ITEMS.map(function(r) {{
-        var lbl=r[0], cv=r[1], pv=r[2], t=r[3];
-        var cf = t==='eps' ? _fmtN(cv,true) : t==='pct' ? _fmtP(cv) : _fmtN(cv);
-        var pf = t==='eps' ? _fmtN(pv,true) : t==='pct' ? _fmtP(pv) : _fmtN(pv);
+        var lbl=r[0], k=r[1], t=r[2];
+        var tds = COLS.map(function(c, ci) {{
+          var v = (c[1] || {{}})[k];
+          var f = t==='eps' ? _fmtN(v,true) : t==='pct' ? _fmtP(v) : _fmtN(v);
+          return '<td style="text-align:right;padding:.3rem 0 .3rem .5rem;font-size:.88rem'
+            +(ci===0?';font-weight:600':'')+'">'+f+'</td>';
+        }}).join('');
         return '<tr style="border-top:1px solid rgba(128,128,128,.1)">'
           +'<td style="color:var(--muted);font-size:.8rem;padding:.3rem .5rem .3rem 0;white-space:nowrap;width:7rem">'+lbl+'</td>'
-          +'<td style="text-align:right;padding:.3rem 1.5rem .3rem .5rem;font-size:.88rem">'+cf+'</td>'
-          +'<td style="text-align:right;padding:.3rem 0 .3rem .5rem;font-size:.88rem">'+pf+'</td>'
-          +'</tr>';
+          +tds+'</tr>';
       }}).join('');
       var tHead = '<thead><tr>'
         +'<th style="text-align:left;padding:.25rem .5rem .25rem 0;color:var(--muted);font-weight:400;font-size:.78rem;width:7rem"></th>'
-        +'<th style="text-align:right;padding:.25rem 1.5rem .25rem .5rem;font-weight:700;font-size:.82rem;color:var(--text)">'+cLbl+'</th>'
-        +'<th style="text-align:right;padding:.25rem 0 .25rem .5rem;color:var(--muted);font-weight:500;font-size:.8rem">'+pLbl+'</th>'
+        +COLS.map(function(c, ci) {{
+          return '<th style="text-align:right;padding:.25rem 0 .25rem .5rem;font-size:.8rem;'
+            +(ci===0?'font-weight:700;color:var(--text)':'font-weight:500;color:var(--muted)')+'">'+c[0]+'</th>';
+        }}).join('')
         +'</tr></thead>';
       var tbl = '<table style="width:100%;border-collapse:collapse;table-layout:fixed">'+tHead+'<tbody>'+tRows+'</tbody></table>';
 
@@ -6020,6 +6101,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                   prev_full_lookup: dict = None,
                   rev_archive: dict = None,
                   qtr_history: dict = None,
+                  year_singles: dict = None,
                   borrow_data: list = None,
                   borrow_avail_dates: list = None,
                   borrow_history: dict = None,
@@ -6265,18 +6347,41 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                 },
                 "text": (_dv(_r, "原文") or "").strip(),
             }
+            _ys = (year_singles or {}).get(_code) or {}
+            if _ys and not _is_q1 and "Q" in _qstr:
+                _cy, _cn = _qstr.split("Q")
+                qtr_detail[_code]["hist"] = [
+                    [_l, _ys[_l]["single"]] for _l in sorted(_ys, reverse=True)
+                    if _l.split("Q")[0] == _cy and int(_l.split("Q")[1]) < int(_cn)]
         qtr_detail_json = json.dumps(qtr_detail, ensure_ascii=False)
 
         # 存本季調整後單季值，供下季「上季」右欄正確顯示（解決 Q2+ 累計值顯示問題）
         _adj_cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_adj_cache.json")
-        _adj_to_save = {
-            _c2: {k: _d2["curr"].get(k) for k in ("eps", "gr", "or_", "xr")}
-            for _c2, _d2 in qtr_detail.items()
-            if _d2.get("cq") == _curr_season_str and not _d2.get("cum")
-        }
+        _adj_to_save = {}
+        for _c2, _d2 in qtr_detail.items():
+            if _d2.get("cq") != _curr_season_str or _d2.get("cum"):
+                continue
+            _cu, _pv2 = _d2["curr"], _d2.get("prev") or {}
+            # 某項上季金額缺 → 該比率未扣成單季，不存
+            _adj_to_save[_c2] = {
+                "eps": _cu.get("eps"),
+                "gr":  _cu.get("gr")  if _pv2.get("gross")  is not None else None,
+                "or_": _cu.get("or_") if _pv2.get("oper")   is not None else None,
+                "xr":  _cu.get("xr")  if _pv2.get("pretax") is not None and _pv2.get("oper") is not None else None,
+            }
+        try:
+            with open(_adj_cache_path, "r", encoding="utf-8") as _f:
+                _adj_all = json.load(_f)
+            if "season" in _adj_all:   # 舊格式（單季）
+                _adj_all = {_adj_all["season"]: _adj_all.get("data", {})}
+        except Exception:
+            _adj_all = {}
+        if _curr_season_str:
+            _adj_all.setdefault(_curr_season_str, {}).update(_adj_to_save)
+            _adj_all = {k: _adj_all[k] for k in sorted(_adj_all, key=lambda q: (int(q.split("Q")[0]), int(q.split("Q")[1])))[-4:]}
         try:
             with open(_adj_cache_path, "w", encoding="utf-8") as _f:
-                json.dump({"season": _curr_season_str, "data": _adj_to_save}, _f, ensure_ascii=False)
+                json.dump(_adj_all, _f, ensure_ascii=False)
         except Exception:
             pass
 
@@ -8056,19 +8161,15 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
 
     # 載入上季調整後單季顯示值（解決 Q2+ 累計值顯示在「上季」欄的問題）
     _adj_cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_adj_cache.json")
-    _prev_adj_display: dict = {}
-    _adj_cache_season = ""
+    _adj_by_season: dict = {}
     try:
         with open(_adj_cache_path, "r", encoding="utf-8") as _f:
             _ac = json.load(_f)
-        _adj_cache_season = _ac.get("season", "")
-        _prev_adj_display = _ac.get("data", {})
+        _adj_by_season = {_ac["season"]: _ac.get("data", {})} if "season" in _ac else _ac
     except Exception:
         pass
     for _c, _pd in prev_data.items():
-        if _pd.get("上季季度") != _adj_cache_season:
-            continue
-        _adj = _prev_adj_display.get(_c, {})
+        _adj = _adj_by_season.get(_pd.get("上季季度") or "", {}).get(_c, {})
         if not _adj:
             continue
         if _adj.get("eps")  is not None: _pd["上季顯示EPS"]   = _adj["eps"]
@@ -8137,6 +8238,34 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         print(f" 補到 {len(new_prev)} 家，完成")
         save_prev_data_cache(_prev_label, prev_data)
         print(f"  prev_data 共 {len(prev_data)} 家（cache 已更新）")
+
+    # 本季為 Q2+ 時，已公布公司用 t163sb15 取今年各季：
+    # 上季欄顯示單季值、上季累計值供本季扣除、明細面板列出今年各季
+    year_singles: dict = {}
+    if (_prev_label and not _prev_label.endswith("Q4")
+            and df_qtr is not None and not df_qtr.empty):
+        _ys_year, _ys_pq = map(int, _prev_label.split("Q"))
+        _ys_curr = f"{_ys_year}Q{_ys_pq + 1}"
+        _ys_codes = sorted(set(
+            df_qtr.loc[df_qtr["季度"].astype(str).str.strip() == _ys_curr, "股票代碼"]
+            .astype(str).str.strip()))
+        year_singles = fetch_year_singles(_ys_codes, _ys_year, list(range(1, _ys_pq + 1)))
+        for _c, _qs in year_singles.items():
+            _p = _qs.get(_prev_label)
+            if not _p:
+                continue
+            _pd = prev_data.setdefault(_c, {"上季季度": _prev_label})
+            if _pd.get("上季季度") != _prev_label:
+                continue
+            _sg, _cm = _p["single"], _p["cum"]
+            for _k, _src in (("上季EPS", "eps"), ("上季營收", "rev"), ("上季毛利", "gross"),
+                             ("上季營業利益", "oper"), ("上季稅前淨利", "pretax")):
+                if _cm.get(_src) is not None:
+                    _pd[_k] = _cm[_src]
+            for _k, _src in (("上季顯示EPS", "eps"), ("上季毛利率", "gr"),
+                             ("上季營益率", "or_"), ("上季業外%", "xr")):
+                if _sg.get(_src) is not None:
+                    _pd[_k] = _sg[_src]
 
     # 月營收補算：t163sb15 取不到原始金額時，從 rev_hist_cache 月加總推算
     def _fill_rev_from_hist_inline(pdata: dict, rhist: dict) -> int:
@@ -8479,6 +8608,7 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          prev_full_lookup=prev_full_lookup,
                          rev_archive=_rev_archive,
                          qtr_history=_cqdata,
+                         year_singles=year_singles,
                          borrow_data=_borrow_data,
                          borrow_avail_dates=_borrow_avail_dates,
                          borrow_history=_borrow_history,
