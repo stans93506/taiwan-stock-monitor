@@ -6116,11 +6116,21 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
                 lambda k: _is_unreflected(k[:7], k[7:])
             )
             df_qtr = df_qtr.drop(columns=["_排序鍵"])
-        qtr_total    = len(df_qtr)
-        qtr_eps_pos  = int((df_qtr["EPS"] > 0).sum()) if "EPS" in df_qtr.columns else 0
-        qtr_eps_neg  = int((df_qtr["EPS"] < 0).sum()) if "EPS" in df_qtr.columns else 0
-        qtr_oper_avg = f"{df_qtr['營益率'].mean():.2f}" if "營益率" in df_qtr.columns else "-"
-        after_close_n = int(df_qtr["未反映"].sum()) if "未反映" in df_qtr.columns else 0
+        # 判斷本季（取最大季度值），用來過濾本季頁面只顯示當季資料
+        if not df_qtr.empty and "季度" in df_qtr.columns:
+            _cs_idx = (df_qtr["季度"].dropna()
+                       .map(lambda q: (int(q[:3]) * 10 + int(q[4:])) if len(q) >= 5 and "Q" in q else 0)
+                       .idxmax())
+            _curr_season_str = str(df_qtr.loc[_cs_idx, "季度"]) if _cs_idx is not None else ""
+        else:
+            _curr_season_str = ""
+        df_qtr_curr = (df_qtr[df_qtr["季度"].fillna("").str.strip() == _curr_season_str].copy()
+                       if _curr_season_str else df_qtr.copy())
+        qtr_total    = len(df_qtr_curr)
+        qtr_eps_pos  = int((df_qtr_curr["EPS"] > 0).sum()) if "EPS" in df_qtr_curr.columns else 0
+        qtr_eps_neg  = int((df_qtr_curr["EPS"] < 0).sum()) if "EPS" in df_qtr_curr.columns else 0
+        qtr_oper_avg = f"{df_qtr_curr['營益率'].mean():.2f}" if "營益率" in df_qtr_curr.columns else "-"
+        after_close_n = int(df_qtr_curr["未反映"].sum()) if "未反映" in df_qtr_curr.columns else 0
         qtr_after_close = (
             f"<span class='badge-unreact ms-2'>今日申報 {after_close_n} 筆</span>"
             if after_close_n > 0 else ""
@@ -6251,7 +6261,7 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
 
         qtr_rows = "\n".join(
             build_qtr_row(r, prev_data.get(str(r.get("股票代碼", ""))))
-            for _, r in df_qtr.iterrows()
+            for _, r in df_qtr_curr.iterrows()
         )
         qtr_content = f"""<script>window.QTR_DETAIL={qtr_detail_json};</script>
         <div class="table-responsive">
@@ -6276,10 +6286,6 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             except Exception:
                 return ""
 
-        _curr_season = (df_qtr["季度"].dropna()
-                        .map(lambda q: (int(q[:3]) * 10 + int(q[4:])) if len(q) >= 5 and "Q" in q else 0)
-                        .idxmax() if not df_qtr.empty else None)
-        _curr_season_str = str(df_qtr.loc[_curr_season, "季度"]) if _curr_season is not None else ""
         _prev_season_str = _prev_qtr(_curr_season_str)
 
         # 截止日

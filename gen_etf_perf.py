@@ -8,7 +8,7 @@ gen_etf_perf.py — ETF 績效比較頁面產生器
   python gen_etf_perf.py --force   # 清除快取，全量重抓
 """
 
-import json, os, re, sys
+import json, os, re, sys, time
 from datetime import datetime, date, timedelta, timezone
 import requests
 
@@ -23,10 +23,12 @@ ETF_LIST = [
     {"code": "0050", "name": "元大台灣50",  "color": "#4a9eff", "start": "2003-06-30"},
 ]
 
-# 市場指數（Yahoo Finance ticker）
-# 注意：台灣 TPEx 櫃買指數目前在 Yahoo Finance 無免費歷史資料，暫不列入
+# 市場指數
+# TWII：Yahoo Finance 抓價格指數，僅當交易日曆（in_chart=False 不顯示）
+# TWIIR：TWSE MI_INDEX 抓「發行量加權股價報酬指數」（含息，2009-01-05 起）
 INDEX_LIST = [
-    {"code": "TWII", "name": "加權指數", "color": "#c9d1d9", "yahoo": "^TWII", "start": "2003-01-01"},
+    {"code": "TWII",  "name": "加權指數",    "color": "#c9d1d9", "source": "yahoo",   "yahoo": "^TWII",  "start": "2003-01-01", "in_chart": False},
+    {"code": "TWIIR", "name": "加權報酬指數", "color": "#c9d1d9", "source": "twse_tr", "start": "2009-01-05", "in_chart": True},
 ]
 
 # ── FinMind 抓取 ──────────────────────────────────────────────────────────
@@ -130,36 +132,102 @@ def update_etf(code: str, name: str, start: str, cache: dict) -> dict:
 
 # ── 指數資料更新 ──────────────────────────────────────────────────────────
 
-def update_index(code: str, name: str, yahoo: str, start: str, cache: dict) -> dict:
-    ec = cache.get(code, {"prices": []})
-    prices = ec.get("prices", [])
-    if prices:
-        last = prices[-1][0]
-        fetch_from = (datetime.strptime(last, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-    else:
-        fetch_from = start
-    today = date.today().strftime("%Y-%m-%d")
-    if fetch_from > today:
-        print(f"  [{code}] 已是最新（{prices[-1][0] if prices else '-'}）")
-        cache[code] = ec
-        return cache
-    print(f"  [{code}] 抓指數 {fetch_from}~{today}...", end="", flush=True)
+def fetch_twse_tr_index(date_str: str) -> float | None:
+    """從 TWSE MI_INDEX 抓單一交易日的「發行量加權股價報酬指數」。"""
     try:
-        new_p = yahoo_fetch(yahoo, fetch_from)
-        print(f" +{len(new_p)} 筆")
-    except Exception as e:
-        print(f" ❌ {e}")
-        cache[code] = ec
+        resp = requests.get(
+            "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX",
+            params={"response": "json", "date": date_str.replace("-", ""), "type": "IND"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=15,
+        )
+        for table in resp.json().get("tables", []):
+            fields = table.get("fields", [])
+            try:
+                col = fields.index("收盤指數")
+            except ValueError:
+                continue
+            for row in table.get("data", []):
+                if row and "加權股價報酬指數" in (row[0] or ""):
+                    try:
+                        return float(row[col].replace(",", "").strip())
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return None
+
+
+def update_index(idx: dict, cache: dict) -> dict:
+    code   = idx["code"]
+    name   = idx["name"]
+    start  = idx["start"]
+    source = idx.get("source", "yahoo")
+
+    if source == "yahoo":
+        ec = cache.get(code, {"prices": []})
+        prices = ec.get("prices", [])
+        if prices:
+            fetch_from = (datetime.strptime(prices[-1][0], "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            fetch_from = start
+        today = date.today().strftime("%Y-%m-%d")
+        if fetch_from > today:
+            print(f"  [{code}] 已是最新（{prices[-1][0] if prices else '-'}）")
+            cache[code] = ec
+            return cache
+        print(f"  [{code}] 抓指數 {fetch_from}~{today}...", end="", flush=True)
+        try:
+            new_p = yahoo_fetch(idx["yahoo"], fetch_from)
+            print(f" +{len(new_p)} 筆")
+        except Exception as e:
+            print(f" ❌ {e}")
+            cache[code] = ec
+            return cache
+        seen = {p[0] for p in prices}
+        for p in new_p:
+            if p[0] not in seen:
+                prices.append(p)
+                seen.add(p[0])
+        prices.sort(key=lambda x: x[0])
+        ec["prices"] = prices
+        ec["name"]   = name
+        cache[code]  = ec
         return cache
-    seen = {p[0] for p in prices}
-    for p in new_p:
-        if p[0] not in seen:
-            prices.append(p)
-            seen.add(p[0])
-    prices.sort(key=lambda x: x[0])
-    ec["prices"] = prices
-    ec["name"]   = name
-    cache[code]  = ec
+
+    elif source == "twse_tr":
+        ec = cache.get(code, {"prices": []})
+        prices = ec.get("prices", [])
+        # 以 TWII 的交易日列表為日曆
+        twii_dates = [p[0] for p in cache.get("TWII", {}).get("prices", []) if p[0] >= start]
+        if not twii_dates:
+            print(f"  [{code}] 尚無 TWII 日曆，請先更新 TWII")
+            cache[code] = ec
+            return cache
+        last_cached = prices[-1][0] if prices else ""
+        to_fetch = [d for d in twii_dates if d > last_cached]
+        if not to_fetch:
+            print(f"  [{code}] 已是最新（{prices[-1][0] if prices else '-'}）")
+            cache[code] = ec
+            return cache
+        print(f"  [{code}] 抓報酬指數 {to_fetch[0]}~{to_fetch[-1]}（{len(to_fetch)} 筆）...", end="", flush=True)
+        seen = {p[0] for p in prices}
+        new_count = 0
+        for i, d in enumerate(to_fetch):
+            val = fetch_twse_tr_index(d)
+            if val is not None and d not in seen:
+                prices.append([d, val])
+                seen.add(d)
+                new_count += 1
+            if i < len(to_fetch) - 1:
+                time.sleep(0.12)
+        prices.sort(key=lambda x: x[0])
+        print(f" +{new_count} 筆")
+        ec["prices"] = prices
+        ec["name"]   = name
+        cache[code]  = ec
+        return cache
+
     return cache
 
 
@@ -199,11 +267,13 @@ def generate_html(cache: dict):
             "series": tr,
         })
     for idx in INDEX_LIST:
+        if not idx.get("in_chart", True):
+            continue
         code = idx["code"]
         if code not in cache:
             continue
         ec = cache[code]
-        tr = compute_tr(ec["prices"], {})   # 指數不含息
+        tr = compute_tr(ec["prices"], {})   # 指數不含息調整（已是報酬指數）
         if not tr:
             continue
         chart_data.append({
@@ -244,7 +314,7 @@ def main():
 
     for idx in INDEX_LIST:
         try:
-            cache = update_index(idx["code"], idx["name"], idx["yahoo"], idx["start"], cache)
+            cache = update_index(idx, cache)
         except Exception as e:
             print(f"  [{idx['code']}] 錯誤: {e}")
 
