@@ -139,11 +139,12 @@ def update_etf(code: str, name: str, start: str, cache: dict) -> dict:
     if ec.get("meta_date") != today or "splits" not in ec:
         print(f"  [{code}] 抓配息...", end="", flush=True)
         divs = {}
+        # FinMind 偶有同一除息日重複登錄（公告日不同），同一除息日只取一筆，不可加總
         for r in finmind_fetch("TaiwanStockDividend", code, start):
-            cash = float(r.get("CashEarningsDistribution") or 0)
+            cash = float(r.get("CashEarningsDistribution") or 0) + float(r.get("CashStatutorySurplus") or 0)
             ex   = (r.get("CashExDividendTradingDate") or "").strip()
             if cash > 0 and re.match(r"\d{4}-\d{2}-\d{2}", ex):
-                divs[ex] = divs.get(ex, 0.0) + cash
+                divs[ex] = round(cash, 4)
         print(f" {len(divs)} 筆")
         ec["divs"]      = divs
         ec["splits"]    = fetch_splits(code, start)
