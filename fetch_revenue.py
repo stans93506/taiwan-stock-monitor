@@ -4750,6 +4750,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <button class="tab-btn" onclick="switchTab('spo', this)">現增</button>
   <button class="tab-btn" onclick="switchTab('borrow', this)">標借</button>
   <button class="tab-btn" onclick="switchTab('limitup', this)">漲停</button>
+  <a href="etf_performance.html" target="_blank" style="padding:6px 12px;background:transparent;border:1px solid rgba(74,158,255,.4);border-radius:4px;color:#4a9eff;font-size:13px;text-decoration:none;white-space:nowrap;display:inline-flex;align-items:center;gap:4px">📊 ETF績效</a>
 </div>
 
 <div class="container-fluid px-4 py-3">
