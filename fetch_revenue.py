@@ -4750,7 +4750,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <button class="tab-btn" onclick="switchTab('spo', this)">現增</button>
   <button class="tab-btn" onclick="switchTab('borrow', this)">標借</button>
   <button class="tab-btn" onclick="switchTab('limitup', this)">漲停</button>
-  <a href="etf_performance.html" target="_blank" style="padding:6px 12px;background:transparent;border:1px solid rgba(74,158,255,.4);border-radius:4px;color:#4a9eff;font-size:13px;text-decoration:none;white-space:nowrap;display:inline-flex;align-items:center;gap:4px">📊 ETF績效</a>
+  <button class="tab-btn" onclick="switchTab('etfperf', this)">📊 ETF績效</button>
 </div>
 
 <div class="container-fluid px-4 py-3">
@@ -4988,6 +4988,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     {limit_up_html}
   </div>
 
+  <div id="tab-etfperf" class="tab-pane" style="padding:0">
+    <iframe id="etfPerfFrame" src="etf_performance.html" style="width:100%;height:calc(100vh - 52px);border:none;display:block"></iframe>
+  </div>
+
 </div>
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -5032,6 +5036,10 @@ function switchTab(id, btn) {{
   if (id === 'etf')      {{ _adj('#etfStockTable'); _adj('#etfChangeTable'); _adj('#etfFundTable'); }}
   if (id === 'spo')      {{ _adj('#spoTable'); }}
   if (id === 'borrow')   {{ _adj('#borrowTable'); }}
+  if (id === 'etfperf') {{
+    var fr = document.getElementById('etfPerfFrame');
+    if (fr && !fr.dataset.loaded) {{ fr.src = fr.src; fr.dataset.loaded = '1'; }}
+  }}
 }}
 
 // ── 月自結封存公告 toggle（全域，供 onclick 存取）──
