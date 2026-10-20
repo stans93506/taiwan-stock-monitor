@@ -383,7 +383,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 :root{
   --bg:#0d1117; --bg2:#161b22; --bg3:#21262d;
   --bdr:#30363d; --txt:#e6edf3; --txt2:#8b949e;
-  --accent:#4a9eff; --gold:#f0c040; --pos:#3fb950; --neg:#f85149;
+  --accent:#4a9eff; --gold:#f0c040; --pos:#f85149; --neg:#3fb950; --warn:#f85149;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--txt);font-family:"Microsoft JhengHei","PingFang TC",sans-serif;padding:16px;min-height:100vh}
@@ -396,7 +396,7 @@ body{background:var(--bg);color:var(--txt);font-family:"Microsoft JhengHei","Pin
 .chip.off{opacity:.35}
 .chip-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
 .chip-rm{background:none;border:none;color:var(--txt2);cursor:pointer;font-size:16px;line-height:1;padding:0 0 0 4px;margin-left:2px}
-.chip-rm:hover{color:var(--neg)}
+.chip-rm:hover{color:var(--warn)}
 /* controls */
 .ctrl-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px}
 .range-btns{display:flex;gap:2px;flex-wrap:wrap}
@@ -429,7 +429,7 @@ body{background:var(--bg);color:var(--txt);font-family:"Microsoft JhengHei","Pin
 /* ETF table */
 .tbl-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:18px 0 8px}
 .sel-note{font-size:13px;color:var(--txt2);transition:color .2s}
-.sel-note.full{color:var(--gold)} .sel-note.flash{color:var(--neg)}
+.sel-note.full{color:var(--gold)} .sel-note.flash{color:var(--warn)}
 .etf-tbl input:disabled{cursor:not-allowed;opacity:.35}
 .sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
 .more-btn{padding:6px 12px;background:var(--bg2);border:1px solid var(--bdr);border-radius:6px;color:var(--txt);font-size:13px;cursor:pointer;font-family:inherit}
@@ -577,7 +577,11 @@ function buildLineDatasets(sd, ed) {
       borderWidth: etf.is_index ? 1.5 : 2,
       borderDash: etf.is_index ? [6, 4] : [],
       pointRadius: 0,
-      pointHoverRadius: 0,
+      pointHoverRadius: 4.5,
+      pointHoverBackgroundColor: etf.color,
+      pointHoverBorderColor: '#0d1117',
+      pointHoverBorderWidth: 2,
+      pointHitRadius: 0,
       tension: 0,
       _etf: etf,
     };
@@ -634,7 +638,7 @@ const barLabelPlugin = {
     chart.getDatasetMeta(0).data.forEach((bar, i) => {
       const v   = ds.data[i];
       const txt = (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
-      ctx.fillStyle = v >= 0 ? '#3fb950' : '#f85149';
+      ctx.fillStyle = v >= 0 ? '#f85149' : '#3fb950';
       ctx.fillText(txt, bar.x + 8, bar.y);
     });
     ctx.restore();
@@ -642,6 +646,24 @@ const barLabelPlugin = {
 };
 
 Chart.register(crosshairPlugin, barLabelPlugin);
+
+// 各線各自取離滑鼠最近的日期（各 ETF 上市日不同，'index' 模式會對錯日期）；
+// 滑鼠在該線資料範圍外則不取
+Chart.Interaction.modes.perSeriesX = function(chart, e) {
+  const pos = Chart.helpers.getRelativePosition(e, chart);
+  const items = [];
+  chart.data.datasets.forEach((ds, di) => {
+    const pts = chart.getDatasetMeta(di).data;
+    if (!pts.length) return;
+    const step = pts.length > 1 ? Math.abs(pts[1].x - pts[0].x) : 0;
+    if (pos.x < pts[0].x - step || pos.x > pts[pts.length - 1].x + step) return;
+    let lo = 0, hi = pts.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; pts[m].x < pos.x ? lo = m : hi = m; }
+    const i = Math.abs(pts[lo].x - pos.x) <= Math.abs(pts[hi].x - pos.x) ? lo : hi;
+    items.push({ element: pts[i], datasetIndex: di, index: i });
+  });
+  return items;
+};
 
 /* ── 建主圖 ──────────────────────────────────────────────────────── */
 function buildChart(sd, ed) {
@@ -656,7 +678,7 @@ function buildChart(sd, ed) {
       data: { datasets: buildLineDatasets(sd, ed) },
       options: {
         responsive: true, maintainAspectRatio: false, animation: false,
-        interaction: { mode: 'index', intersect: false },
+        interaction: { mode: 'perSeriesX', intersect: false },
         plugins: {
           legend: { display: false },
           tooltip: { enabled: false, external: externalLineTooltip },
