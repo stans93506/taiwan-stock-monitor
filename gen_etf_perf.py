@@ -277,7 +277,10 @@ def compute_tr(prices: list, divs: dict, splits: dict = None) -> list:
     for date_s, close in prices:
         div = divs.get(date_s, 0.0)
         if prev is not None and prev > 0:
-            tr = tr * (close + div) / (prev / splits.get(date_s, 1.0))
+            # 與還原股價相同：以除權息參考價（前收÷分割比例−配息）為基準
+            ref = prev / splits.get(date_s, 1.0) - div
+            if ref > 0:
+                tr = tr * close / ref
         result.append([date_s, round(tr, 4)])
         prev = close
     return result
