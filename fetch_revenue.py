@@ -3037,11 +3037,11 @@ def build_qtr_row(row, prev: dict = None):
         sign = "+" if v >= 0 else ""
         return f"<td style='color:#6b7280'>{sign}{v:.2f}%</td>"
 
-    # 比較用上季數值（業外%越低越好）
-    prev_gross  = p.get("上季毛利率")
-    prev_oper   = p.get("上季營益率")
-    prev_nonop  = p.get("上季業外%")
-    prev_adj_eps = p.get("上季EPS")
+    # 比較用上季數值（業外%越低越好）；右欄顯示用調整後單季值（若有）
+    prev_gross   = p.get("上季毛利率")
+    prev_oper    = p.get("上季營益率")
+    prev_nonop   = p.get("上季業外%")
+    prev_adj_eps = p.get("上季顯示EPS") if p.get("上季顯示EPS") is not None else p.get("上季EPS")
 
     _code_attr = str(row.get("股票代碼", "")).strip()
     return (
@@ -3058,7 +3058,7 @@ def build_qtr_row(row, prev: dict = None):
         + _cmp_pct(oper_r, prev_oper)
         + _cmp_pct(other_r, prev_nonop, lower_better=True)
         + f"<td class='sep-col'>{p.get('上季季度','')}</td>"
-        + _prev_num(p.get("上季EPS"))
+        + _prev_num(p.get("上季顯示EPS") if p.get("上季顯示EPS") is not None else p.get("上季EPS"))
         + _prev_pct(p.get("上季毛利率"))
         + _prev_pct(p.get("上季營益率"))
         + _prev_pct(p.get("上季業外%"))
@@ -6267,6 +6267,19 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
             }
         qtr_detail_json = json.dumps(qtr_detail, ensure_ascii=False)
 
+        # 存本季調整後單季值，供下季「上季」右欄正確顯示（解決 Q2+ 累計值顯示問題）
+        _adj_cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_adj_cache.json")
+        _adj_to_save = {
+            _c2: {k: _d2["curr"].get(k) for k in ("eps", "gr", "or_", "xr")}
+            for _c2, _d2 in qtr_detail.items()
+            if _d2.get("cq") == _curr_season_str and not _d2.get("cum")
+        }
+        try:
+            with open(_adj_cache_path, "w", encoding="utf-8") as _f:
+                json.dump({"season": _curr_season_str, "data": _adj_to_save}, _f, ensure_ascii=False)
+        except Exception:
+            pass
+
         qtr_rows = "\n".join(
             build_qtr_row(r, prev_data.get(str(r.get("股票代碼", ""))))
             for _, r in df_qtr_curr.iterrows()
@@ -8040,6 +8053,28 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
             }
         if prev_data:
             print(f"  qtr_cache 歷史取得上季資料：{len(prev_data)} 家")
+
+    # 載入上季調整後單季顯示值（解決 Q2+ 累計值顯示在「上季」欄的問題）
+    _adj_cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qtr_adj_cache.json")
+    _prev_adj_display: dict = {}
+    _adj_cache_season = ""
+    try:
+        with open(_adj_cache_path, "r", encoding="utf-8") as _f:
+            _ac = json.load(_f)
+        _adj_cache_season = _ac.get("season", "")
+        _prev_adj_display = _ac.get("data", {})
+    except Exception:
+        pass
+    for _c, _pd in prev_data.items():
+        if _pd.get("上季季度") != _adj_cache_season:
+            continue
+        _adj = _prev_adj_display.get(_c, {})
+        if not _adj:
+            continue
+        if _adj.get("eps")  is not None: _pd["上季顯示EPS"]   = _adj["eps"]
+        if _adj.get("gr")   is not None: _pd["上季毛利率"]     = _adj["gr"]
+        if _adj.get("or_")  is not None: _pd["上季營益率"]     = _adj["or_"]
+        if _adj.get("xr")   is not None: _pd["上季業外%"]      = _adj["xr"]
 
     # ── ② 輔助 cache（跨執行持久化已查到的資料）─────────────────────────
     # 從 df_qtr 的實際季度推算「上季」標籤，避免日曆邊界在 8/15 後誤判
