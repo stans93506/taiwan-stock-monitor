@@ -41,11 +41,14 @@ jobs:
       - name: 複製為 index.html（供 GitHub Pages 使用）
         run: cp 台股監測.html index.html
 
+      - name: 產生 ETF 績效頁面
+        run: python gen_etf_perf.py
+
       - name: 將更新結果 commit 回 repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f index.html 台股監測.html *.json etf_data/ borrow_data/ limit_up_data/
+          git add -f index.html 台股監測.html *.json etf_data/ borrow_data/ limit_up_data/ etf_performance.html
           git diff --cached --quiet || git commit -m "自動更新：$(date '+%Y-%m-%d %H:%M') UTC"
           git fetch origin main
           git merge -X ours origin/main --no-edit || true
