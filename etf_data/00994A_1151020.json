@@ -151,15 +151,15 @@
       "weight": 0.85
     },
     {
-      "code": "2308",
-      "name": "台達電",
-      "shares": 20500,
-      "weight": 0.84
-    },
-    {
       "code": "6187",
       "name": "萬潤",
       "shares": 25000,
+      "weight": 0.84
+    },
+    {
+      "code": "2308",
+      "name": "台達電",
+      "shares": 20500,
       "weight": 0.84
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "09:07"
+  "fetch_time": "09:38"
 }
