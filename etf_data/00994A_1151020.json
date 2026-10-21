@@ -223,15 +223,15 @@
       "weight": 0.32
     },
     {
-      "code": "3264",
-      "name": "欣銓",
-      "shares": 49000,
-      "weight": 0.31
-    },
-    {
       "code": "2455",
       "name": "全新",
       "shares": 25000,
+      "weight": 0.31
+    },
+    {
+      "code": "3264",
+      "name": "欣銓",
+      "shares": 49000,
       "weight": 0.31
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "15:08"
+  "fetch_time": "15:37"
 }
