@@ -145,15 +145,15 @@
       "weight": 0.89
     },
     {
-      "code": "6187",
-      "name": "萬潤",
-      "shares": 25000,
-      "weight": 0.84
-    },
-    {
       "code": "2308",
       "name": "台達電",
       "shares": 20500,
+      "weight": 0.84
+    },
+    {
+      "code": "6187",
+      "name": "萬潤",
+      "shares": 25000,
       "weight": 0.84
     },
     {
@@ -169,15 +169,15 @@
       "weight": 0.7
     },
     {
-      "code": "3105",
-      "name": "穩懋",
-      "shares": 40000,
-      "weight": 0.52
-    },
-    {
       "code": "7769",
       "name": "鴻勁",
       "shares": 4000,
+      "weight": 0.52
+    },
+    {
+      "code": "3105",
+      "name": "穩懋",
+      "shares": 40000,
       "weight": 0.52
     },
     {
@@ -205,12 +205,6 @@
       "weight": 0.34
     },
     {
-      "code": "6488",
-      "name": "環球晶",
-      "shares": 15000,
-      "weight": 0.33
-    },
-    {
       "code": "6510",
       "name": "精測",
       "shares": 4000,
@@ -220,6 +214,12 @@
       "code": "6526",
       "name": "達發",
       "shares": 16000,
+      "weight": 0.33
+    },
+    {
+      "code": "6488",
+      "name": "環球晶",
+      "shares": 15000,
       "weight": 0.33
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "16:36"
+  "fetch_time": "08:06"
 }
