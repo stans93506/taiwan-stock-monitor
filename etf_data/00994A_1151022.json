@@ -193,22 +193,16 @@
       "weight": 0.4
     },
     {
-      "code": "6691",
-      "name": "洋基工程",
-      "shares": 20000,
-      "weight": 0.35
-    },
-    {
       "code": "1560",
       "name": "中砂",
       "shares": 16000,
       "weight": 0.35
     },
     {
-      "code": "3264",
-      "name": "欣銓",
-      "shares": 49000,
-      "weight": 0.32
+      "code": "6691",
+      "name": "洋基工程",
+      "shares": 20000,
+      "weight": 0.35
     },
     {
       "code": "6526",
@@ -226,6 +220,12 @@
       "code": "6488",
       "name": "環球晶",
       "shares": 15000,
+      "weight": 0.32
+    },
+    {
+      "code": "3264",
+      "name": "欣銓",
+      "shares": 49000,
       "weight": 0.32
     },
     {
@@ -247,5 +247,5 @@
       "weight": 0.2
     }
   ],
-  "fetch_time": "15:05"
+  "fetch_time": "15:34"
 }
