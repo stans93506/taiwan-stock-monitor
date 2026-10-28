@@ -1139,8 +1139,9 @@ def _save_stock_data_cache(data: dict) -> None:
     except Exception:
         pass
 
-def fetch_stock_data(codes: list[str]) -> dict[str, dict]:
-    """從 TWSE/OTC OpenAPI 抓取各股當日漲跌幅/成交量/已發行股數，回傳 {code: {pct, volume, issued}}
+def fetch_stock_data(codes: list[str], holdings_date: datetime | None = None) -> dict[str, dict]:
+    """抓取各股漲跌幅/成交量/收盤價/已發行股數，回傳 {code: {pct, volume, price, issued}}
+    漲跌幅、成交量取 holdings_date（持股資料日）當天，收盤價取最新交易日；
     週末或 API 回空時，以上次交易日的 cache 補充缺失資料。"""
     if not codes:
         return {}
@@ -1185,14 +1186,22 @@ def fetch_stock_data(codes: list[str]) -> dict[str, dict]:
             if p:
                 result[c]["price"] = p
 
-    # 當日收盤：TWSE OpenAPI / TPEx OpenAPI 要隔天早上才更新，
-    # 先用盤後即更新的 MI_INDEX 與櫃買每日收盤行情，取最近有資料的交易日
+    # 收盤行情：TWSE OpenAPI / TPEx OpenAPI 要隔天早上才更新，
+    # 先用盤後即更新的 MI_INDEX 與櫃買每日收盤行情
     _ua = {"Accept": "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     _tw_now = datetime.utcnow() + timedelta(hours=8)
-    _recent = [d for d in (_tw_now - timedelta(days=i) for i in range(7)) if d.weekday() < 5]
 
-    twse_date = None
-    for d in _recent:
+    def _row(close_s, change_s, vol_s) -> dict:
+        e = {"volume": _int(vol_s)}
+        pct = _pct(close_s, change_s)
+        if pct is not None:
+            e["pct"] = pct
+        p = _price(close_s)
+        if p:
+            e["price"] = p
+        return e
+
+    def _twse_day(d) -> dict:
         try:
             r = requests.get(
                 "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX",
@@ -1202,54 +1211,77 @@ def fetch_stock_data(codes: list[str]) -> dict[str, dict]:
             js = r.json() if r.ok else {}
         except Exception as e:
             print(f"  ⚠ TWSE MI_INDEX {d:%m/%d} 查詢失敗：{e}")
-            continue
+            return {}
+        if str(js.get("date", "")) != d.strftime("%Y%m%d"):
+            return {}
         tbl = next((t for t in js.get("tables", [])
                     if t.get("data") and "證券代號" in (t.get("fields") or [])), None)
         if not tbl:
-            continue
+            return {}
         f = tbl["fields"]
         ic, iclose, isign, idiff, ivol = (f.index(k) for k in
                                           ("證券代號", "收盤價", "漲跌(+/-)", "漲跌價差", "成交股數"))
-        items = []
+        out = {}
         for row in tbl["data"]:
-            sign = "-" if "-" in re.sub(r"<[^>]+>", "", str(row[isign])) else ""
-            items.append({"Code": row[ic], "ClosingPrice": row[iclose],
-                          "Change": f"{sign}{row[idiff]}", "TradeVolume": row[ivol]})
-        _parse_twse_items(items)
-        twse_date = d
-        break
+            c = str(row[ic]).strip()
+            if c in code_set:
+                sign = "-" if "-" in re.sub(r"<[^>]+>", "", str(row[isign])) else ""
+                out[c] = _row(row[iclose], f"{sign}{row[idiff]}", row[ivol])
+        return out
 
-    tpex_date = None
-    for d in _recent:
+    def _tpex_day(d) -> dict:
+        # 舊版 stk_quote_result.php 會忽略日期、一律回最新一日，不可用於指定日期
         try:
             r = requests.get(
-                "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php",
-                params={"l": "zh-tw", "d": f"{d.year - 1911}/{d:%m/%d}", "o": "json"},
+                "https://www.tpex.org.tw/www/zh-tw/afterTrading/otc",
+                params={"date": d.strftime("%Y/%m/%d"), "type": "EW", "response": "json"},
                 headers=_ua, timeout=20, verify=False,
             )
             js = r.json() if r.ok else {}
         except Exception as e:
             print(f"  ⚠ TPEx 每日收盤 {d:%m/%d} 查詢失敗：{e}")
-            continue
-        tbls = js.get("tables") or [{"fields": js.get("fields"), "data": js.get("aaData")}]
-        tbl = next((t for t in tbls if t.get("data") and "代號" in (t.get("fields") or [])), None)
+            return {}
+        if str(js.get("date", "")) != d.strftime("%Y%m%d"):
+            return {}
+        tbl = next((t for t in js.get("tables", [])
+                    if t.get("data") and "代號" in [x.strip() for x in (t.get("fields") or [])]), None)
         if not tbl:
-            continue
-        f = tbl["fields"]
+            return {}
+        f = [x.strip() for x in tbl["fields"]]
         ic, iclose, ichg, ivol = (f.index(k) for k in ("代號", "收盤", "漲跌", "成交股數"))
-        for row in tbl["data"]:
-            c = str(row[ic]).strip()
-            if c not in code_set or c in result:
+        return {str(row[ic]).strip(): _row(row[iclose], row[ichg], row[ivol])
+                for row in tbl["data"] if str(row[ic]).strip() in code_set}
+
+    def _weekdays_back(start):
+        return [d for d in (start - timedelta(days=i) for i in range(7)) if d.weekday() < 5]
+
+    # 漲跌%、成交量對齊持股資料日（量比 = 當日買賣張數 / 當日成交量）；
+    # 收盤價取最新交易日，供持有估值使用
+    _hd = holdings_date or _tw_now
+    dates_used = {}
+    for label, fetch in (("上市", _twse_day), ("上櫃", _tpex_day)):
+        d_h, rows_h = None, {}
+        for d in _weekdays_back(_hd):
+            rows_h = fetch(d)
+            if rows_h:
+                d_h = d
+                break
+        rows_l = {}
+        if d_h:
+            for d in _weekdays_back(_tw_now):
+                if d.date() <= d_h.date():
+                    break
+                rows_l = fetch(d)
+                if rows_l:
+                    break
+        for c, e in rows_h.items():
+            if c in result:
                 continue
-            result[c] = {"volume": _int(row[ivol])}
-            pct = _pct(row[iclose], row[ichg])
-            if pct is not None:
-                result[c]["pct"] = pct
-            p = _price(row[iclose])
-            if p:
-                result[c]["price"] = p
-        tpex_date = d
-        break
+            if c in rows_l and "price" in rows_l[c]:
+                e["price"] = rows_l[c]["price"]
+            result[c] = e
+        dates_used[label] = d_h
+    twse_date, tpex_date = dates_used["上市"], dates_used["上櫃"]
     print(f"  收盤資料日：上市 {twse_date:%m/%d}" if twse_date else "  收盤資料日：上市 (改用 OpenAPI)", end="")
     print(f"、上櫃 {tpex_date:%m/%d}" if tpex_date else "、上櫃 (改用 OpenAPI)")
 
@@ -1477,7 +1509,14 @@ def run_all(force_fetch: bool = False) -> dict[str, dict]:
             for c in res.get("changes", [])
             if c.get("is_removed")
         })
-        results["_stock_data"] = fetch_stock_data(all_codes)
+        # 持股資料日（民國 115/10/28）＝頁面基準日，取各 ETF 最新者
+        h_date = None
+        for res in results.values():
+            m = re.match(r"(\d{2,3})/(\d{1,2})/(\d{1,2})$", str(res["today"].get("date", "")))
+            if m:
+                d = datetime(int(m.group(1)) + 1911, int(m.group(2)), int(m.group(3)))
+                h_date = max(h_date, d) if h_date else d
+        results["_stock_data"] = fetch_stock_data(all_codes, h_date)
 
     return results
 
