@@ -1185,18 +1185,87 @@ def fetch_stock_data(codes: list[str]) -> dict[str, dict]:
             if p:
                 result[c]["price"] = p
 
-    try:
-        r = requests.get(
-            "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-            headers={"Accept": "application/json"}, timeout=15, verify=False,
-        )
-        items = r.json() if r.ok else []
+    # 當日收盤：TWSE OpenAPI / TPEx OpenAPI 要隔天早上才更新，
+    # 先用盤後即更新的 MI_INDEX 與櫃買每日收盤行情，取最近有資料的交易日
+    _ua = {"Accept": "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    _tw_now = datetime.utcnow() + timedelta(hours=8)
+    _recent = [d for d in (_tw_now - timedelta(days=i) for i in range(7)) if d.weekday() < 5]
+
+    twse_date = None
+    for d in _recent:
+        try:
+            r = requests.get(
+                "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX",
+                params={"date": d.strftime("%Y%m%d"), "type": "ALLBUT0999", "response": "json"},
+                headers=_ua, timeout=20, verify=False,
+            )
+            js = r.json() if r.ok else {}
+        except Exception as e:
+            print(f"  ⚠ TWSE MI_INDEX {d:%m/%d} 查詢失敗：{e}")
+            continue
+        tbl = next((t for t in js.get("tables", [])
+                    if t.get("data") and "證券代號" in (t.get("fields") or [])), None)
+        if not tbl:
+            continue
+        f = tbl["fields"]
+        ic, iclose, isign, idiff, ivol = (f.index(k) for k in
+                                          ("證券代號", "收盤價", "漲跌(+/-)", "漲跌價差", "成交股數"))
+        items = []
+        for row in tbl["data"]:
+            sign = "-" if "-" in re.sub(r"<[^>]+>", "", str(row[isign])) else ""
+            items.append({"Code": row[ic], "ClosingPrice": row[iclose],
+                          "Change": f"{sign}{row[idiff]}", "TradeVolume": row[ivol]})
         _parse_twse_items(items)
-    except Exception as e:
-        print(f"  ⚠ TWSE OpenAPI 查詢失敗：{e}")
+        twse_date = d
+        break
+
+    tpex_date = None
+    for d in _recent:
+        try:
+            r = requests.get(
+                "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php",
+                params={"l": "zh-tw", "d": f"{d.year - 1911}/{d:%m/%d}", "o": "json"},
+                headers=_ua, timeout=20, verify=False,
+            )
+            js = r.json() if r.ok else {}
+        except Exception as e:
+            print(f"  ⚠ TPEx 每日收盤 {d:%m/%d} 查詢失敗：{e}")
+            continue
+        tbls = js.get("tables") or [{"fields": js.get("fields"), "data": js.get("aaData")}]
+        tbl = next((t for t in tbls if t.get("data") and "代號" in (t.get("fields") or [])), None)
+        if not tbl:
+            continue
+        f = tbl["fields"]
+        ic, iclose, ichg, ivol = (f.index(k) for k in ("代號", "收盤", "漲跌", "成交股數"))
+        for row in tbl["data"]:
+            c = str(row[ic]).strip()
+            if c not in code_set or c in result:
+                continue
+            result[c] = {"volume": _int(row[ivol])}
+            pct = _pct(row[iclose], row[ichg])
+            if pct is not None:
+                result[c]["pct"] = pct
+            p = _price(row[iclose])
+            if p:
+                result[c]["price"] = p
+        tpex_date = d
+        break
+    print(f"  收盤資料日：上市 {twse_date:%m/%d}" if twse_date else "  收盤資料日：上市 (改用 OpenAPI)", end="")
+    print(f"、上櫃 {tpex_date:%m/%d}" if tpex_date else "、上櫃 (改用 OpenAPI)")
+
+    if not twse_date:
+        try:
+            r = requests.get(
+                "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+                headers={"Accept": "application/json"}, timeout=15, verify=False,
+            )
+            items = r.json() if r.ok else []
+            _parse_twse_items(items)
+        except Exception as e:
+            print(f"  ⚠ TWSE OpenAPI 查詢失敗：{e}")
 
     # TWSE rwd 備援（OpenAPI 週末回空時補充）
-    if len(result) < len(code_set) // 2:
+    if not twse_date and len(result) < len(code_set) // 2:
         try:
             r = requests.get(
                 "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json",
@@ -1222,7 +1291,7 @@ def fetch_stock_data(codes: list[str]) -> dict[str, dict]:
 
     # OTC 上櫃：漲跌幅 + 成交量 + 收盤價（補充 TWSE 未包含的）
     missing = code_set - set(result)
-    if missing:
+    if missing and not tpex_date:
         try:
             r = requests.get(
                 "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes",
