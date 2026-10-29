@@ -163,15 +163,15 @@
       "weight": 0.71
     },
     {
-      "code": "2455",
-      "name": "全新",
-      "shares": 50000,
-      "weight": 0.65
-    },
-    {
       "code": "3026",
       "name": "禾伸堂",
       "shares": 34000,
+      "weight": 0.65
+    },
+    {
+      "code": "2455",
+      "name": "全新",
+      "shares": 50000,
       "weight": 0.65
     },
     {
@@ -205,15 +205,15 @@
       "weight": 0.34
     },
     {
-      "code": "6510",
-      "name": "精測",
-      "shares": 4000,
-      "weight": 0.33
-    },
-    {
       "code": "6526",
       "name": "達發",
       "shares": 16000,
+      "weight": 0.33
+    },
+    {
+      "code": "6510",
+      "name": "精測",
+      "shares": 4000,
       "weight": 0.33
     },
     {
@@ -253,5 +253,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "16:06"
+  "fetch_time": "08:09"
 }
