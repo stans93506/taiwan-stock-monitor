@@ -211,15 +211,15 @@
       "weight": 0.31
     },
     {
-      "code": "3264",
-      "name": "欣銓",
-      "shares": 49000,
-      "weight": 0.29
-    },
-    {
       "code": "2880",
       "name": "華南金",
       "shares": 210000,
+      "weight": 0.29
+    },
+    {
+      "code": "3264",
+      "name": "欣銓",
+      "shares": 49000,
       "weight": 0.29
     },
     {
@@ -235,5 +235,5 @@
       "weight": 0.01
     }
   ],
-  "fetch_time": "15:07"
+  "fetch_time": "15:36"
 }
