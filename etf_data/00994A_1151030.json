@@ -85,15 +85,15 @@
       "weight": 3.04
     },
     {
-      "code": "5274",
-      "name": "信驊",
-      "shares": 6420,
-      "weight": 2.79
-    },
-    {
       "code": "1303",
       "name": "南亞",
       "shares": 347000,
+      "weight": 2.79
+    },
+    {
+      "code": "5274",
+      "name": "信驊",
+      "shares": 6420,
       "weight": 2.79
     },
     {
@@ -235,5 +235,5 @@
       "weight": 0.01
     }
   ],
-  "fetch_time": "16:35"
+  "fetch_time": "17:06"
 }
