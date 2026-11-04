@@ -2,7 +2,7 @@
 主動ETF持股追蹤模組
 每日執行一次，抓取 ezmoney ETF 持股 Excel，存 JSON 快照，比對前日變動。
 """
-import io, json, math, os, re, requests, urllib.parse
+import io, json, math, os, re, requests, time, urllib.parse
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -734,7 +734,6 @@ def fetch_holdings_ctbcfund(etf_code: str, etf_id: str) -> dict | None:
     2. POST ETFList (空 body) → 找 ETF_ID 匹配 → 取 FID 和 NAV_DT
     3. POST ETFHoldingWeight {FID, StartDate} → 持股明細
     """
-    base = "https://www.ctbcinvestments.com.tw/API/"
     h = {
         "User-Agent": HEADERS["User-Agent"],
         "Referer": "https://www.ctbcinvestments.com/",
@@ -743,13 +742,27 @@ def fetch_holdings_ctbcfund(etf_code: str, etf_id: str) -> dict | None:
         "Content-Type": "application/json",
     }
 
-    try:
-        r0 = requests.post(base + "home/AuthToken?token=www.ctbcinvestments.com",
-                           headers=h, timeout=15, verify=False)
-        token = r0.json()["Data"]["token"]
-        enc = urllib.parse.quote(token, safe="")
-    except Exception as e:
-        print(f"\n  [ctbc] {etf_code} token 失敗：{e}")
+    # token 綁定發出它的網域，後續請求要用同一個 base
+    base = enc = None
+    for attempt, candidate in enumerate((
+        "https://www.ctbcinvestments.com.tw/API/",
+        "https://www.ctbcinvestments.com/API/",
+        "https://www.ctbcinvestments.com.tw/API/",
+        "https://www.ctbcinvestments.com/API/",
+    )):
+        if attempt:
+            time.sleep(3)
+        r0 = None
+        try:
+            r0 = requests.post(candidate + "home/AuthToken?token=www.ctbcinvestments.com",
+                               headers=h, timeout=15, verify=False)
+            enc = urllib.parse.quote(r0.json()["Data"]["token"], safe="")
+            base = candidate
+            break
+        except Exception as e:
+            detail = f"HTTP {r0.status_code} {r0.headers.get('content-type', '')}" if r0 is not None else ""
+            print(f"\n  [ctbc] {etf_code} token 失敗（{candidate.split('/')[2]}）{detail}：{e}")
+    if not base:
         return None
 
     try:
