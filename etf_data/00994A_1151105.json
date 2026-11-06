@@ -121,15 +121,15 @@
       "weight": 1.14
     },
     {
-      "code": "2603",
-      "name": "長榮",
-      "shares": 129000,
-      "weight": 1.06
-    },
-    {
       "code": "2360",
       "name": "致茂",
       "shares": 25000,
+      "weight": 1.06
+    },
+    {
+      "code": "2603",
+      "name": "長榮",
+      "shares": 129000,
       "weight": 1.06
     },
     {
@@ -229,5 +229,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "17:46"
+  "fetch_time": "08:08"
 }
