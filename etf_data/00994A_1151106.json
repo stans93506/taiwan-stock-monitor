@@ -2,8 +2,8 @@
   "etf_code": "00994A",
   "etf_name": "主動第一金台股優選",
   "date": "115/11/06",
-  "nav_per_unit": 0.0,
-  "nav_total": 0.0,
+  "nav_per_unit": 12.46,
+  "nav_total": 2898213516.0,
   "units": 232690000.0,
   "holdings": [
     {
@@ -205,5 +205,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "14:51"
+  "fetch_time": "08:43"
 }
