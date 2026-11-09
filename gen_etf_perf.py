@@ -420,7 +420,9 @@ body{background:var(--bg);color:var(--txt);font-family:"Microsoft JhengHei","Pin
 #navCanvas{display:block;width:100%;height:64px;cursor:default}
 /* period return */
 .period-box{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;padding:12px 16px}
-.period-dates{font-size:12px;color:var(--txt2);margin-bottom:8px}
+.period-dates{font-size:12px;color:var(--txt2);margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.period-dates input{background:var(--bg3);border:1px solid var(--bdr);border-radius:4px;color:var(--txt);font-size:12px;font-family:inherit;padding:2px 6px;color-scheme:dark}
+.period-dates input:focus{outline:none;border-color:var(--accent)}
 .ret-list{display:flex;flex-wrap:wrap;gap:16px}
 .ret-item{display:flex;align-items:center;gap:8px}
 .ret-dot{width:10px;height:10px;border-radius:50%}
@@ -485,7 +487,7 @@ body{background:var(--bg);color:var(--txt);font-family:"Microsoft JhengHei","Pin
 <div class="nav-wrap"><canvas id="navCanvas"></canvas></div>
 
 <div class="period-box">
-  <div class="period-dates" id="periodDates"></div>
+  <div class="period-dates"><input type="date" id="pdStart"> → <input type="date" id="pdEnd"> <span id="pdLbl"></span></div>
   <div class="ret-list" id="retList"></div>
 </div>
 
@@ -959,8 +961,12 @@ const RANGE_LABEL = {
 };
 
 function updatePeriod(sd, ed, rnglbl) {
-  const lb = rnglbl ? `（${rnglbl}）` : '';
-  document.getElementById('periodDates').textContent = `${fmt(sd)} → ${fmt(ed)} ${lb}`;
+  // 使用者正在輸入的欄位不覆寫，離開欄位時再同步
+  for (const [id, v] of [['pdStart', sd], ['pdEnd', ed]]) {
+    const el = document.getElementById(id);
+    if (document.activeElement !== el) el.value = v;
+  }
+  document.getElementById('pdLbl').textContent = rnglbl ? `（${rnglbl}）` : '';
 
   let html = '';
   for (const etf of ETF_DATA) {
@@ -1174,6 +1180,25 @@ function init() {
       updateAll();
     });
   });
+
+  // 自填日期：對齊到區間內的交易日，套用為自訂區間
+  const pdS = document.getElementById('pdStart'), pdE = document.getElementById('pdEnd');
+  pdS.min = pdE.min = allDates[0];
+  pdS.max = pdE.max = allDates[allDates.length - 1];
+  const onDateInput = () => {
+    const si = allDates.findIndex(d => d >= pdS.value);
+    const ei = allDates.findLastIndex(d => d <= pdE.value);
+    if (!pdS.value || !pdE.value || si < 0 || ei <= si) return;
+    navLeft  = si / (allDates.length - 1);
+    navRight = ei / (allDates.length - 1);
+    document.querySelectorAll('.rbtn').forEach(b => b.classList.remove('on'));
+    activeRange = 'custom';
+    updateAll();
+  };
+  for (const el of [pdS, pdE]) {
+    el.addEventListener('change', onDateInput);
+    el.addEventListener('blur', () => setTimeout(updateAll));  // 離開欄位：顯示對齊後的交易日（無效輸入則還原）
+  }
 
   initNav();
   initTable();
