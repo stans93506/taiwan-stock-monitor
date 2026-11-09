@@ -605,6 +605,9 @@ def save_rev_hist_cache(data: dict) -> None:
         json.dump(data, f, ensure_ascii=False)
 
 
+REV_HIST_START = "2019-01-01"   # FinMind 以公布月計，2019-01 起 = 營收 2018/12（107/12）起
+
+
 def fetch_rev_hist_single(code: str, typek: str = "sii") -> list:
     """從 FinMind 取得單一股票歷史月營收（由舊至新）。
     FinMind revenue 單位為元；轉換為千元存入 r，並自算 MOM%/YOY%。
@@ -614,7 +617,7 @@ def fetch_rev_hist_single(code: str, typek: str = "sii") -> list:
         resp = requests.get(
             "https://api.finmindtrade.com/api/v4/data",
             params={"dataset": "TaiwanStockMonthRevenue", "data_id": code,
-                    "start_date": "2020-01-01"},
+                    "start_date": REV_HIST_START},
             timeout=20,
             headers={"User-Agent": "Mozilla/5.0"},
         )
@@ -694,17 +697,24 @@ def ensure_rev_hist(code_market_map: dict, rev_archive: dict = None) -> dict:
     need = [(c, m) for c, m in code_market_map.items()
             if (c not in cache or _latest_ym(cache[c]) < _prev_ym)
             and not _arch_has_prev(c)]
-    if not need:
+    # 起始日往前延伸後，舊 cache 需重抓補齊較早月份（獨立額度，避免被最新月份補抓佔滿）
+    need_set = {c for c, _ in need}
+    backfill = [(c, m) for c, m in code_market_map.items()
+                if c not in need_set and c in cache
+                and cache[c].get("start") != REV_HIST_START]
+    if not need and not backfill:
         print(f"  [歷史營收] {len(code_market_map)} 支全部已有 cache")
         return cache
-    # 每次最多補抓 80 支，避免 GitHub Actions 超時；多次執行自然補齊
-    need = need[:80]
+    # 每次最多補抓 80 支 + 回補 30 支，避免 GitHub Actions 超時；多次執行自然補齊
+    need = need[:80] + backfill[:30]
 
     print(f"  [歷史營收] 補抓 {len(need)} 支...")
     for code, market in need:
         typek = "sii" if market == "上市" else "otc"
         data  = fetch_rev_hist_single(code, typek)
-        cache[code] = {"fetched_at": today_s, "market": market, "data": data}
+        if data or code not in cache:   # 抓取失敗時保留舊資料，下次再試
+            cache[code] = {"fetched_at": today_s, "market": market, "data": data,
+                           "start": REV_HIST_START}
         print(f"    {code} ({market}): {len(data)} 個月")
         save_rev_hist_cache(cache)
         _t.sleep(0.3)
@@ -5260,9 +5270,9 @@ $(document).ready(function() {{
     return (v>0?'+':'')+v.toFixed(2)+'%';
   }}
   function _fmtYm(ym) {{
-    // "11507" → "115/07"
+    // "11507" → "2026/07"
     if(!ym||ym.length<4) return ym;
-    return ym.slice(0,-2)+'/'+ym.slice(-2);
+    return (parseInt(ym.slice(0,-2),10)+1911)+'/'+ym.slice(-2);
   }}
 
   function _revHistChildHtml() {{
@@ -5353,7 +5363,10 @@ $(document).ready(function() {{
           }}
         }},
         scales: {{
-          x: {{ ticks:{{font:{{size:10}}, maxRotation:60}} }},
+          x: {{ ticks:{{font:{{size:10}}, maxRotation:60, autoSkip:false,
+                // 每年一月標白色，方便辨識年度起點
+                color: function(c){{ var p = c.tick && pts[c.tick.value]; return p && p.ym.slice(-2)==='01' ? '#fff' : Chart.defaults.color; }}
+              }} }},
           y: {{ ticks:{{font:{{size:11}}}}, title:{{display:true,text:'百萬(M)'}} }}
         }}
       }}
