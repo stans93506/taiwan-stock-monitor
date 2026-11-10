@@ -373,7 +373,8 @@ def fetch_revenue_moneydj(roc_year: int, month: int,
     year_str = str(roc_year)
     month_str = str(month)
     PAT = re.compile(
-        r'^(.+?)(?:\s+' + re.escape(year_str) + r'年)?\s*' + re.escape(month_str) +
+        # (?<!前)：排除「台積電前10月營收…」這類累計標題，避免蓋掉單月營收
+        r'^(.+?)(?:\s+' + re.escape(year_str) + r'年)?\s*(?<!前)' + re.escape(month_str) +
         r'月(?:合併)?營收(-?[\d.,]+)(億|萬|千|百萬|元)?(?:[^年]*年(增|減)([\d.,]+)%)?'
     )
 
@@ -729,9 +730,12 @@ def merge_rev_cache(new_df: pd.DataFrame, cached_rows: list) -> pd.DataFrame:
     df_cache = pd.DataFrame(cached_rows)
     # 合併：新資料排前，舊資料補齊沒有的公司
     combined = pd.concat([new_df, df_cache], ignore_index=True)
-    # 去重：同代碼保留第一筆（即今日最新）
+    # 去重：同代碼保留第一筆（即今日最新）；但有年增率的優先，
+    # 避免同公司另一則缺年增率的新聞（如「聯發科技自結…月減」）蓋掉完整資料
     key = "股票代碼"
     if key in combined.columns:
+        if "年增率" in combined.columns:
+            combined = combined.sort_values("年增率", key=lambda s: s.isna(), kind="stable")
         combined = combined.drop_duplicates(subset=key, keep="first")
     return combined.reset_index(drop=True)
 
