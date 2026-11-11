@@ -3301,8 +3301,12 @@ def build_treasury_row(row):
         ann_disp = f"<span class='badge-unreact'>未反映</span> {ann_disp}"
 
     group = "0" if after else "1"
+    # 有公告原文才可點開（舊 cache 沒存原文）
+    raw_txt = row.get("原文")
+    trs_attr = (f" data-trs='{row.get('股票代碼','')}_{row.get('公告日期','')}' style='cursor:pointer'"
+                if isinstance(raw_txt, str) and raw_txt.strip() else "")
     return (
-        f"<tr{tr_cls}>"
+        f"<tr{tr_cls}{trs_attr}>"
         f"<td style='display:none'>{group}</td>"
         f"<td><span class='badge {badge}'>{mkt}</span></td>"
         f"<td><b style='color:#4fc3f7'>{row.get('股票代碼','')}</b></td>"
@@ -5608,6 +5612,24 @@ $(document).ready(function() {{
     $('#trsReset').on('click', function(){{ $('#trsMkt').val(''); trsT.column(1).search('').draw(); }});
   }}
 
+  // ── 庫藏股：點擊列展開公告原文（未反映卡片與執行中表皆適用）──
+  $(document).on('click', 'tr[data-trs]', function() {{
+    var $tr = $(this);
+    var $next = $tr.next('.qtr-detail-panel');
+    $('.trs-detail').remove();
+    $('tr[data-trs]').removeClass('detail-open');
+    if ($next.length) return;
+    var ann = (window.TRS_TEXT_DATA || {{}})[$tr.data('trs')];
+    if (!ann) return;
+    var esc = function(s) {{ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }};
+    var cols = $tr.closest('table').find('thead tr th').length;
+    $tr.after('<tr class="qtr-detail-panel trs-detail"><td colspan="'+cols+'" style="padding:0"><div class="qtr-detail-inner">'
+      + (ann.title ? '<div style="font-weight:600;font-size:.88rem;margin-bottom:.4rem;color:var(--text)">'+esc(ann.title)+'</div>' : '')
+      + '<div class="qtr-orig-text">'+esc(ann.text)+'</div>'
+      + '</div></td></tr>');
+    $tr.addClass('detail-open');
+  }});
+
   // ── 新聞分頁無 DataTable，不需初始化 ──
 
   // ── 事件表 ──
@@ -6555,7 +6577,21 @@ def generate_html(df_rev: pd.DataFrame, df_qtr: pd.DataFrame,
 
         # ② 執行中：主 DataTable（可篩選搜尋）
         active_rows_html = "\n".join(build_treasury_row(r) for _, r in df_active_rows.iterrows())
-        treasury_content = f"""{unreact_block}
+
+        # 公告原文 map：「代碼_公告日期」→ {title, text}（供點擊展開）
+        _trs_text_map = {}
+        for _, _tr in df_trs.iterrows():
+            _raw_x = _tr.get("原文")
+            if isinstance(_raw_x, str) and _raw_x.strip():
+                _raw_t = _tr.get("主旨")
+                _trs_text_map[f"{_tr.get('股票代碼','')}_{_tr.get('公告日期','')}"] = {
+                    "title": _raw_t.strip() if isinstance(_raw_t, str) else "",
+                    "text":  _raw_x.strip(),
+                }
+        trs_text_json = json.dumps(_trs_text_map, ensure_ascii=False)
+
+        treasury_content = f"""<script>window.TRS_TEXT_DATA={trs_text_json};</script>
+          {unreact_block}
           <div class='card mb-3'><div class='card-body py-2'>
             <div class='d-flex filter-bar'>
               <label style='font-size:.82rem;'>市場</label>
@@ -7770,6 +7806,8 @@ def fetch_t05st02() -> tuple:
                 "狀態":     status,
                 "未反映":   (_roc_to_date(date_s) == today_d),  # 當日新公告即為市場未反映
                 "_排序鍵":  (date_s + time_s.zfill(6)).zfill(13),
+                "主旨":     p["desc"].strip(),
+                "原文":     _extract_mops_body(text)[:3000],
             })
         print(" 完成")
         df_trs = pd.DataFrame(trs_result)
