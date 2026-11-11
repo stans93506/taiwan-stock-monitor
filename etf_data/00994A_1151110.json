@@ -13,15 +13,15 @@
       "weight": 17.7
     },
     {
-      "code": "2383",
-      "name": "台光電",
-      "shares": 51002,
-      "weight": 6.91
-    },
-    {
       "code": "2454",
       "name": "聯發科",
       "shares": 58101,
+      "weight": 6.91
+    },
+    {
+      "code": "2383",
+      "name": "台光電",
+      "shares": 51002,
       "weight": 6.91
     },
     {
@@ -115,15 +115,15 @@
       "weight": 1.15
     },
     {
-      "code": "2360",
-      "name": "致茂",
-      "shares": 25000,
-      "weight": 1.02
-    },
-    {
       "code": "2603",
       "name": "長榮",
       "shares": 129000,
+      "weight": 1.02
+    },
+    {
+      "code": "2360",
+      "name": "致茂",
+      "shares": 25000,
       "weight": 1.02
     },
     {
@@ -205,5 +205,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "09:10"
+  "fetch_time": "09:39"
 }
