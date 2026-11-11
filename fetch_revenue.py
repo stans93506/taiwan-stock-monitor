@@ -5473,15 +5473,21 @@ $(document).ready(function() {{
     // ── 季報 detail panel（點擊列展開） ──
     var _det = _detCurrent;
     var _colCount = $('#qtrTable thead tr th').length;
-    function _fmtN(v, isEps) {{
+    // 比前一季（右邊一欄）好 → 橘色；持平、較差或無前季可比 → 白色
+    // low=true 代表絕對值越小越好（業外：不論賺賠，影響越小本業越乾淨）
+    function _clr(v, pv, low) {{
+      if (pv === null || pv === undefined) return 'var(--text)';
+      return (low ? Math.abs(v) < Math.abs(pv) : v > pv) ? '#fb8c00' : 'var(--text)';
+    }}
+    function _fmtN(v, isEps, pv, low) {{
       if (v === null || v === undefined) return '<span style="color:var(--muted)">—</span>';
-      var clr = v >= 0 ? '#fb8c00' : 'var(--text)';
+      var clr = _clr(v, pv, low);
       if (isEps) return '<span style="color:'+clr+';font-weight:600">'+(v>=0?'+':'')+v.toFixed(2)+'</span>';
       return '<span style="color:'+clr+'">'+Math.round(v).toLocaleString('en')+'</span>';
     }}
-    function _fmtP(v) {{
+    function _fmtP(v, pv, low) {{
       if (v === null || v === undefined) return '<span style="color:var(--muted)">—</span>';
-      var clr = v >= 0 ? '#fb8c00' : 'var(--text)';
+      var clr = _clr(v, pv, low);
       return '<span style="color:'+clr+'">'+(v>=0?'+':'')+v.toFixed(2)+'%</span>';
     }}
     function _buildDetail(code) {{
@@ -5516,8 +5522,10 @@ $(document).ready(function() {{
       var tRows = ITEMS.map(function(r) {{
         var lbl=r[0], k=r[1], t=r[2];
         var tds = COLS.map(function(c, ci) {{
-          var v = (c[1] || {{}})[k];
-          var f = t==='eps' ? _fmtN(v,true) : t==='pct' ? _fmtP(v) : _fmtN(v);
+          var v  = (c[1] || {{}})[k];
+          var pv = ((COLS[ci+1] || [])[1] || {{}})[k];   // COLS 由新到舊，右邊一欄即前一季
+          var low = (k==='other' || k==='xr');   // 業外絕對值越小越好
+          var f = t==='eps' ? _fmtN(v,true,pv) : t==='pct' ? _fmtP(v,pv,low) : _fmtN(v,false,pv,low);
           return '<td style="text-align:right;padding:.3rem 0 .3rem .5rem;font-size:.88rem'
             +(ci===0?';font-weight:600':'')+'">'+f+'</td>';
         }}).join('');
