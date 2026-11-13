@@ -104,32 +104,36 @@ def fetch_ohlc(date_str: str) -> dict:
                 if not (o and c and vol and val):
                     continue
                 out[code] = {"name": str(row[f["證券名稱"]]).strip(), "open": o, "close": c,
+                             "high": _num(row[f["最高價"]]), "low": _num(row[f["最低價"]]),
                              "prev": round(c - diff, 2), "avg": val / vol}
     except Exception as e:
         print(f"  [當日] TWSE 行情失敗：{e}")
         return {}
     n_twse = len(out)
     try:
-        roc = f"{int(date_str[:4]) - 1911}/{date_str[4:6]}/{date_str[6:]}"
-        r = requests.get("https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/"
-                         f"stk_quote_result.php?l=zh-tw&d={roc}&o=json",
+        # 新版 API 會照指定日期回傳（舊版 stk_quote_result.php 一律回最新一天）
+        r = requests.get("https://www.tpex.org.tw/www/zh-tw/afterTrading/otc",
+                         params={"date": f"{date_str[:4]}/{date_str[4:6]}/{date_str[6:]}",
+                                 "type": "EW", "response": "json"},
                          headers=_H, timeout=30, verify=False).json()
         if str(r.get("date")) != date_str:
             return {}
         for t in r.get("tables", []):
-            f = {name: i for i, name in enumerate(t.get("fields", []))}
-            if "均價" not in f:
+            f = {name.strip(): i for i, name in enumerate(t.get("fields", []))}
+            if "成交金額(元)" not in f:
                 continue
             for row in t.get("data", []):
                 code = str(row[f["代號"]]).strip()
                 if not (code.isdigit() and len(code) == 4):
                     continue
-                o, c, avg = _num(row[f["開盤"]]), _num(row[f["收盤"]]), _num(row[f["均價"]])
+                o, c = _num(row[f["開盤"]]), _num(row[f["收盤"]])
+                vol, val = _num(row[f["成交股數"]]), _num(row[f["成交金額(元)"]])
                 diff = _num(row[f["漲跌"]])
-                if not (o and c and avg) or diff is None:
+                if not (o and c and vol and val) or diff is None:
                     continue
                 out[code] = {"name": str(row[f["名稱"]]).strip(), "open": o, "close": c,
-                             "prev": round(c - diff, 2), "avg": avg}
+                             "high": _num(row[f["最高"]]), "low": _num(row[f["最低"]]),
+                             "prev": round(c - diff, 2), "avg": val / vol}
     except Exception as e:
         print(f"  [當日] TPEx 行情失敗：{e}")
         return {}
@@ -162,6 +166,14 @@ def _is_limit_up(q: dict) -> bool:
     return q["prev"] > 0 and q["close"] / q["prev"] - 1 >= 0.095
 
 
+def _lock(q: dict) -> str:
+    """一字鎖死：全日只有一個價（開=高=低=收）且在漲跌停 → 'up' / 'down'，否則 ''"""
+    if not (q.get("high") and q.get("low")) or not (q["open"] == q["high"] == q["low"] == q["close"]):
+        return ""
+    r = q["close"] / q["prev"] - 1
+    return "up" if r >= 0.095 else "down" if r <= -0.095 else ""
+
+
 # ── 報告計算 ──────────────────────────────────────────────────────────
 def build_report(today: str, announcements: list, ohlc: dict) -> dict:
     """announcements: [{cat, code, name, score, ann}]（ann 為原始公告時間字串）"""
@@ -171,6 +183,7 @@ def build_report(today: str, announcements: list, ohlc: dict) -> dict:
     end = t.replace(hour=9, minute=0)
 
     cats = {}
+    rows = []   # 個股明細（排行榜用）
     seen = set()
     for a in announcements:
         dt = parse_ann_time(a.get("ann"), t)
@@ -197,6 +210,8 @@ def build_report(today: str, announcements: list, ohlc: dict) -> dict:
         st["n"] += 1
         st["up"] += chg > 0
         st["sum"] += chg
+        rows.append({"code": a["code"], "name": a.get("name") or q["name"], "cat": a["cat"],
+                     "score": s, "bucket": b, "trend": f"{oc}{tr}", "chg": round(chg, 2), "lock": _lock(q)})
 
     # 昨日漲停今日表現
     y_rows = _load_limit_up(prev_td)
@@ -212,7 +227,7 @@ def build_report(today: str, announcements: list, ohlc: dict) -> dict:
     return {"date": today, "prev_td": prev_td,
             "generated_at": _tw_now().strftime("%Y-%m-%d %H:%M"),
             "categories": [{"name": n, **cats[n]} for n in CATEGORIES if n in cats],
-            "limitup_prev": lu, "commentary": ""}
+            "rows": rows, "limitup_prev": lu, "commentary": ""}
 
 
 def _commentary_prompt(rep: dict) -> str:
@@ -349,6 +364,12 @@ def generate_html() -> str:
 .dr-grid th.g{{text-align:center;border-left:1px solid var(--border)}}
 .dr-grid tfoot td{{font-weight:700}}
 .dr-up{{color:#ff6b6b}} .dr-dn{{color:#4caf50}}
+.dr-f{{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin:.35rem 0}}
+.dr-f span{{width:4.5rem;font-size:.8rem;color:var(--muted)}}
+.dr-f button{{background:transparent;color:var(--text);border:1px solid var(--border);border-radius:1rem;padding:.15rem .7rem;font-size:.8rem;cursor:pointer}}
+.dr-f button.on{{background:var(--border);font-weight:700}}
+.dr-rank th{{cursor:pointer;user-select:none;white-space:nowrap}}
+.dr-rank td.c{{text-align:left;white-space:nowrap}}
 </style>
 <div class="dr-wrap">
   <div class="dr-head"><h5>當日整理</h5><select id="drDate">{opts}</select>
@@ -363,10 +384,16 @@ def generate_html() -> str:
       AI 評分：+8 以上利多、+4～+7 偏多、0～+3 中性、-1～-3 偏空、-4 以下利空。滑鼠停在數字上可看個股。</div>
     <div id="drGrids"></div>
   </div>
+  <div class="dr-box" id="drRankBox">
+    <div style="font-weight:700;margin-bottom:.3rem" id="drRankTitle"></div>
+    <div id="drFilters"></div>
+    <div style="overflow-x:auto"><table class="dr-grid dr-rank"><thead><tr id="drRankHead"></tr></thead><tbody id="drRankBody"></tbody></table></div>
+  </div>
 </div>
 <script>
 (function(){{
   var H = {data};
+  var CATS = {json.dumps(CATEGORIES, ensure_ascii=False)};
   var BK = {json.dumps(BUCKETS, ensure_ascii=False)}, OC = {json.dumps(OPEN_CLS, ensure_ascii=False)}, TR = {json.dumps(TREND, ensure_ascii=False)};
   var BKC = {{'利多':'#ff6b6b','偏多':'#fb8c00','中性':'var(--text)','偏空':'#81c784','利空':'#4caf50','未評分':'var(--muted)'}};
   var TRC = {{'走高':[255,107,107],'整理':[158,158,158],'走低':[76,175,80]}};
@@ -413,7 +440,67 @@ def generate_html() -> str:
       : '<div class="dr-note">AI 評論尚未產生（下次執行會再試）。</div>';
     document.getElementById('drGrids').innerHTML = r.categories.length
       ? r.categories.map(grid).join('') : '<div class="dr-note" style="margin-top:.6rem">視窗內沒有公告</div>';
+    cur = r.rows || [];
+    document.getElementById('drRankBox').style.display = r.rows ? '' : 'none';
+    renderRank();
   }}
+
+  // ── 盤前公告 AI 評分排行榜 ──
+  var cur = [], F = {{cat:'', bucket:'', trend:'', lock:''}}, S = {{k:'score', d:-1}};
+  var COLS = [['code','代號'],['name','名稱'],['cat','類型'],['score','AI 分'],['trend','走勢'],['chg','日線%']];
+  function btns(key, label, opts){{
+    var h = '<div class="dr-f"><span>'+label+'</span>';
+    [['','全部']].concat(opts).forEach(function(o){{
+      h += '<button data-k="'+key+'" data-v="'+o[0]+'" class="'+(F[key]===o[0]?'on':'')+'"'
+        + (o[2] ? ' style="border-color:'+o[2]+'"' : '') + '>'+o[1]+'</button>';
+    }});
+    return h + '</div>';
+  }}
+  function renderRank(){{
+    var cats = CATS.filter(function(c){{ return cur.some(function(x){{ return x.cat===c; }}); }});
+    var bks = BK.filter(function(b){{ return cur.some(function(x){{ return x.bucket===b; }}); }});
+    document.getElementById('drFilters').innerHTML =
+        btns('cat', '類型', cats.map(function(c){{ return [c,c]; }}))
+      + btns('bucket', 'AI 分類', bks.map(function(b){{ return [b,b,BKC[b]]; }}))
+      + btns('trend', '走勢', [].concat.apply([], OC.map(function(o){{ return TR.map(function(t){{ return [o+t,o+t]; }}); }})))
+      + btns('lock', '鎖死', [['up','🔒 鎖漲停','#ff6b6b'],['down','🔒 鎖跌停','#4caf50']]);
+    var list = cur.filter(function(x){{
+      return (!F.cat || x.cat===F.cat) && (!F.bucket || x.bucket===F.bucket)
+          && (!F.trend || x.trend===F.trend) && (!F.lock || x.lock===F.lock);
+    }});
+    list.sort(function(a,b){{
+      var x = a[S.k], y = b[S.k];
+      if (x === null || x === undefined) return 1;
+      if (y === null || y === undefined) return -1;
+      return (x < y ? -1 : x > y ? 1 : 0) * S.d;
+    }});
+    document.getElementById('drRankTitle').textContent = '盤前公告 AI 評分排行榜（' + list.length + ' 檔'
+      + (list.length !== cur.length ? '／共 ' + cur.length + ' 檔' : '') + '）';
+    document.getElementById('drRankHead').innerHTML = COLS.map(function(c){{
+      var ar = S.k===c[0] ? (S.d>0?' ▲':' ▼') : ' <span style="opacity:.4">⇅</span>';
+      return '<th class="'+(c[0]==='chg'?'':'l')+'" data-s="'+c[0]+'">'+c[1]+ar+'</th>';
+    }}).join('');
+    document.getElementById('drRankBody').innerHTML = list.length ? list.map(function(x){{
+      var tc = /走高$/.test(x.trend) ? 'dr-up' : /走低$/.test(x.trend) ? 'dr-dn' : '';
+      var sc = x.score === null ? '<span style="color:var(--muted)">—</span>'
+        : '<b style="color:'+BKC[x.bucket]+'">'+(x.score>0?'+':'')+x.score+'</b> <span style="color:var(--muted);font-size:.8rem">'+x.bucket+'</span>';
+      var chg = x.lock ? '<span title="'+(x.lock==='up'?'一字鎖漲停':'一字鎖跌停')+'">🔒 '+(x.chg>0?'+':'')+x.chg.toFixed(2)+'%</span>'
+        : (x.chg>0?'+':'')+x.chg.toFixed(2)+'%';
+      return '<tr><td class="c"><b style="color:#4fc3f7">'+x.code+'</b></td><td class="c">'+esc(x.name)+'</td>'
+        + '<td class="c">'+x.cat+'</td><td class="c">'+sc+'</td><td class="c '+tc+'">'+x.trend+'</td>'
+        + '<td class="'+(x.chg>0?'dr-up':x.chg<0?'dr-dn':'')+'">'+chg+'</td></tr>';
+    }}).join('') : '<tr><td colspan="6" class="c dr-note">沒有符合條件的個股</td></tr>';
+  }}
+  document.getElementById('drFilters').addEventListener('click', function(e){{
+    var b = e.target.closest('button'); if (!b) return;
+    F[b.dataset.k] = b.dataset.v; renderRank();
+  }});
+  document.getElementById('drRankHead').addEventListener('click', function(e){{
+    var th = e.target.closest('th'); if (!th) return;
+    var k = th.dataset.s;
+    S = {{k:k, d: S.k===k ? -S.d : (k==='code'||k==='name'||k==='cat'||k==='trend' ? 1 : -1)}};
+    renderRank();
+  }});
   var sel = document.getElementById('drDate');
   sel.addEventListener('change', function(){{ render(sel.value); }});
   render(sel.value);
