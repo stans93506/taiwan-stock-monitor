@@ -23,6 +23,7 @@ import time
 from requests.adapters import HTTPAdapter
 import etf_tracker
 import limit_up_tracker
+import daily_report
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -898,6 +899,15 @@ def calc_rev_ai_score(cur_rev, prev_rev, yoy_pct, hist_pts: list) -> int | None:
     return max(-9, min(9, round(score)))
 
 
+# 當日整理用：各分頁產生列時記下 AI 評分與公告時間（與頁面顯示同一份分數）
+DAILY_ANN_LOG: list = []
+
+def _log_ann(cat: str, row, score, ann) -> None:
+    DAILY_ANN_LOG.append({"cat": cat, "code": str(row.get("股票代碼", "")).strip(),
+                          "name": str(row.get("公司名稱", "")).strip(),
+                          "score": score, "ann": str(ann or "")})
+
+
 def _ai_score_cell(score) -> str:
     if score is None:
         return "<td data-order='-99' style='color:#aaa;text-align:center'>-</td>"
@@ -955,15 +965,17 @@ def build_rev_row(row, group: str = "1", hist_pts: list = None):
         if _cur_r is not None and _prev_r and float(_prev_r) != 0:
             mom_cell = _pct_cell((float(_cur_r) / float(_prev_r) - 1) * 100)
 
+    rev_score = calc_rev_ai_score(row.get("當月營收"), row.get("上月營收"),
+                                  row.get("年增率"), hist_pts)
+    _log_ann("月營收", row, rev_score, pub)
+
     return (
         f"<tr data-code='{code}' style='cursor:pointer'>"
         f"<td style='display:none'>{group}</td>"   # 隱藏群組欄（DataTables 分組用）
         f"<td><span class='badge {badge}'>{mkt}</span></td>"
         f"<td><b style='color:#4fc3f7'>{code}</b></td>"
         f"<td>{name}</td>"
-        + _ai_score_cell(calc_rev_ai_score(
-            row.get("當月營收"), row.get("上月營收"),
-            row.get("年增率"), hist_pts))
+        + _ai_score_cell(rev_score)
         + f"<td style='color:var(--text);font-size:.85rem'>{pub_disp}</td>"
         + rev_cell
         + mom_cell
@@ -2875,6 +2887,7 @@ def build_monthly_row(row, prev: dict = None):
 
     # AI 評分（文字上色，無背景）
     score = calc_monthly_ai_score(dict(row), p)
+    _log_ann("月自結", row, score, row.get("公告時間"))
     if score is None:
         ai_cell = "<td>-</td>"
     else:
@@ -3074,6 +3087,7 @@ def build_qtr_row(row, prev: dict = None):
     # AI 評分欄（文字上色，無背景）
     _ai_row = dict(row) | {"毛利率": gross_r, "營益率": oper_r, "業外%": other_r}
     score = calc_ai_score(_ai_row, p)
+    _log_ann("季報", row, score, row.get("_排序鍵") or row.get("公告時間"))
     if score is None:
         ai_cell = "<td>-</td>"
     else:
@@ -3301,6 +3315,7 @@ def build_treasury_row(row):
         ann_disp = f"<span class='badge-unreact'>未反映</span> {ann_disp}"
 
     group = "0" if after else "1"
+    _log_ann("庫藏股", row, None, f"{ann_d}{ann_t}")   # 庫藏股無 AI 評分
     # 有公告原文才可點開（舊 cache 沒存原文）
     raw_txt = row.get("原文")
     trs_attr = (f" data-trs='{row.get('股票代碼','')}_{row.get('公告日期','')}' style='cursor:pointer'"
@@ -4839,6 +4854,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 <!-- 分頁列 -->
 <div class="tab-bar">
+  <button class="tab-btn" onclick="switchTab('daily', this)">📋 當日</button>
   <button class="tab-btn active" onclick="switchTab('rev', this)">營收</button>
   <button class="tab-btn" onclick="switchTab('qtr', this)">季報</button>
   <button class="tab-btn" onclick="switchTab('treasury', this)">庫藏股</button>
@@ -4855,6 +4871,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <div class="container-fluid px-4 py-3">
 
   <!-- ═══ 營收分頁 ═══ -->
+  <!-- ═══ 當日整理分頁（內容於 generate_html 之後填入，需等各分頁 AI 評分算完）═══ -->
+  <div id="tab-daily" class="tab-pane">
+    <!--DAILY_REPORT-->
+  </div>
+
   <div id="tab-rev" class="tab-pane active">
     <div class="d-flex align-items-center gap-4 mb-3 px-1" style="font-size:.92rem;color:var(--text);">
       <span>營收期間：<strong>{rev_period_disp}</strong></span>
@@ -8676,6 +8697,16 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          borrow_avail_dates=_borrow_avail_dates,
                          borrow_history=_borrow_history,
                          limit_up_html=_limit_up_html)
+
+    print("\n【當日整理】")
+    try:
+        daily_report.run(DAILY_ANN_LOG, _ai_post)
+        _daily_html = daily_report.generate_html()
+    except Exception as e:
+        print(f"  ⚠ 當日整理失敗：{e}")
+        _daily_html = "<div class='no-data'>當日整理產生失敗</div>"
+    html = html.replace("<!--DAILY_REPORT-->", _daily_html, 1)
+
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
     # 同步寫一份 index.html 供 HTTP server 使用（避免 bat 需要含中文的 copy 指令）
