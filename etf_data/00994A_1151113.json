@@ -145,15 +145,15 @@
       "weight": 0.62
     },
     {
-      "code": "2891",
-      "name": "中信金",
-      "shares": 202000,
-      "weight": 0.48
-    },
-    {
       "code": "3105",
       "name": "穩懋",
       "shares": 28000,
+      "weight": 0.48
+    },
+    {
+      "code": "2891",
+      "name": "中信金",
+      "shares": 202000,
       "weight": 0.48
     },
     {
@@ -169,15 +169,15 @@
       "weight": 0.39
     },
     {
-      "code": "2345",
-      "name": "智邦",
-      "shares": 8000,
-      "weight": 0.37
-    },
-    {
       "code": "6526",
       "name": "達發",
       "shares": 16000,
+      "weight": 0.37
+    },
+    {
+      "code": "2345",
+      "name": "智邦",
+      "shares": 8000,
       "weight": 0.37
     },
     {
@@ -205,5 +205,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "13:38"
+  "fetch_time": "14:38"
 }
