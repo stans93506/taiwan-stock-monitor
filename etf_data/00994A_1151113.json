@@ -145,15 +145,15 @@
       "weight": 0.62
     },
     {
-      "code": "3105",
-      "name": "穩懋",
-      "shares": 28000,
-      "weight": 0.48
-    },
-    {
       "code": "2891",
       "name": "中信金",
       "shares": 202000,
+      "weight": 0.48
+    },
+    {
+      "code": "3105",
+      "name": "穩懋",
+      "shares": 28000,
       "weight": 0.48
     },
     {
@@ -205,5 +205,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "16:37"
+  "fetch_time": "17:40"
 }
