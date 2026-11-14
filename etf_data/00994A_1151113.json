@@ -85,15 +85,15 @@
       "weight": 2.97
     },
     {
-      "code": "3189",
-      "name": "景碩",
-      "shares": 120000,
-      "weight": 2.44
-    },
-    {
       "code": "6510",
       "name": "精測",
       "shares": 24000,
+      "weight": 2.44
+    },
+    {
+      "code": "3189",
+      "name": "景碩",
+      "shares": 120000,
       "weight": 2.44
     },
     {
@@ -145,15 +145,15 @@
       "weight": 0.62
     },
     {
-      "code": "2891",
-      "name": "中信金",
-      "shares": 202000,
-      "weight": 0.48
-    },
-    {
       "code": "3105",
       "name": "穩懋",
       "shares": 28000,
+      "weight": 0.48
+    },
+    {
+      "code": "2891",
+      "name": "中信金",
+      "shares": 202000,
       "weight": 0.48
     },
     {
@@ -205,5 +205,5 @@
       "weight": 0.0
     }
   ],
-  "fetch_time": "15:38"
+  "fetch_time": "16:09"
 }
