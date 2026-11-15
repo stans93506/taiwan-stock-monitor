@@ -4855,19 +4855,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 <!-- 分頁列 -->
 <div class="tab-bar">
-  <button class="tab-btn" onclick="switchTab('daily', this)">📋 當日</button>
+  <button class="tab-btn" onclick="switchTab('daily', this)">當日</button>
   <button class="tab-btn active" onclick="switchTab('rev', this)">營收</button>
   <button class="tab-btn" onclick="switchTab('qtr', this)">季報</button>
   <button class="tab-btn" onclick="switchTab('treasury', this)">庫藏股</button>
   <button class="tab-btn" onclick="switchTab('monthly', this)">月自結</button>
-  <button class="tab-btn" onclick="switchTab('news', this)">📰 新聞</button>
-  <button class="tab-btn" onclick="switchTab('event', this)">📅 事件</button>
-  <button class="tab-btn" onclick="switchTab('etf', this)">📈 主動ETF</button>
+  <button class="tab-btn" onclick="switchTab('news', this)">新聞</button>
+  <button class="tab-btn" onclick="switchTab('event', this)">事件</button>
+  <button class="tab-btn" onclick="switchTab('limitup', this)">漲停</button>
+  <button class="tab-btn" onclick="switchTab('newhigh', this)">新高</button>
+  <button class="tab-btn" onclick="switchTab('etf', this)">主動ETF</button>
+  <button class="tab-btn" onclick="switchTab('etfperf', this)">ETF績效</button>
   <button class="tab-btn" onclick="switchTab('spo', this)">現增</button>
   <button class="tab-btn" onclick="switchTab('borrow', this)">標借</button>
-  <button class="tab-btn" onclick="switchTab('limitup', this)">漲停</button>
-  <button class="tab-btn" onclick="switchTab('newhigh', this)">🚀 新高</button>
-  <button class="tab-btn" onclick="switchTab('etfperf', this)">📊 ETF績效</button>
 </div>
 
 <div class="container-fluid px-4 py-3">
