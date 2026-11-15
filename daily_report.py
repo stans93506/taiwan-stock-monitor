@@ -79,8 +79,20 @@ def parse_ann_time(raw, ref: datetime) -> datetime | None:
 
 
 # ── 行情 ──────────────────────────────────────────────────────────────
+_ohlc_memo: dict = {}   # 同一次執行內共用（新高頁也用同一份行情）
+
+
 def fetch_ohlc(date_str: str) -> dict:
     """{code: {name, open, close, prev, avg}}；上市或上櫃任一缺當日資料就回傳 {}（等下次執行）"""
+    if date_str in _ohlc_memo:
+        return _ohlc_memo[date_str]
+    out = _fetch_ohlc(date_str)
+    if out:
+        _ohlc_memo[date_str] = out
+    return out
+
+
+def _fetch_ohlc(date_str: str) -> dict:
     out = {}
     try:
         r = requests.get("https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX",

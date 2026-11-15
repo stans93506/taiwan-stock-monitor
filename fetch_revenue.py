@@ -24,6 +24,7 @@ from requests.adapters import HTTPAdapter
 import etf_tracker
 import limit_up_tracker
 import daily_report
+import new_high
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -4866,6 +4867,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <button class="tab-btn" onclick="switchTab('borrow', this)">標借</button>
   <button class="tab-btn" onclick="switchTab('limitup', this)">漲停</button>
   <button class="tab-btn" onclick="switchTab('etfperf', this)">📊 ETF績效</button>
+  <button class="tab-btn" onclick="switchTab('newhigh', this)">🚀 新高</button>
 </div>
 
 <div class="container-fluid px-4 py-3">
@@ -5110,6 +5112,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <div id="tab-etfperf" class="tab-pane" style="padding:0">
     <iframe id="etfPerfFrame" src="etf_performance.html" style="width:100%;height:calc(100vh - 52px);border:none;display:block"></iframe>
+  </div>
+
+  <!-- ═══ 新高分頁（內容於 generate_html 之後填入）═══ -->
+  <div id="tab-newhigh" class="tab-pane">
+    <!--NEW_HIGH-->
   </div>
 
 </div>
@@ -8706,6 +8713,15 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         print(f"  ⚠ 當日整理失敗：{e}")
         _daily_html = "<div class='no-data'>當日整理產生失敗</div>"
     html = html.replace("<!--DAILY_REPORT-->", _daily_html, 1)
+
+    print("\n【120 日新高】")
+    try:
+        new_high.update()
+        _nh_html = new_high.generate_html(limit_up_tracker.get_sector_map())
+    except Exception as e:
+        print(f"  ⚠ 新高產生失敗：{e}")
+        _nh_html = "<div class='no-data'>新高資料產生失敗</div>"
+    html = html.replace("<!--NEW_HIGH-->", _nh_html, 1)
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
