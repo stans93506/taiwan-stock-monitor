@@ -242,8 +242,8 @@ def build_report(today: str, announcements: list, ohlc: dict) -> dict:
             "rows": rows, "limitup_prev": lu, "commentary": ""}
 
 
-def _commentary_prompt(rep: dict) -> str:
-    """把當天數據整理成給 AI 的素材"""
+def _commentary_prompt(rep: dict, extra_lines: list | None = None) -> str:
+    """把當天數據整理成給 AI 的素材；extra_lines 為其他模組提供的素材（如 120 日新高／新低）"""
     lines = [f"日期：{rep['date']}"]
     today_lu = _load_limit_up(rep["date"])
     if today_lu:
@@ -273,6 +273,7 @@ def _commentary_prompt(rep: dict) -> str:
              for d, r in sorted(past.items()) if d < rep["date"] and r.get("limitup_prev")]
     if trend:
         lines.append("前幾日昨日漲停隔日表現：" + "、".join(trend[-5:]))
+    lines.extend(extra_lines or [])
     for c in rep["categories"]:
         lines.append(f"【{c['name']}】盤前公告 {c['window']} 件，對到股價 {c['matched']} 件")
         for b in BUCKETS:
@@ -284,11 +285,13 @@ def _commentary_prompt(rep: dict) -> str:
                 lines.append(f"    {k} {len(names)} 件，例：{'、'.join(names[:3])}")
     return (
         "你是台股盤後評論員。根據以下當日數據，用繁體中文寫 3～5 段盤後評論，每段 3～5 句。\n"
-        "內容涵蓋：漲停家數與族群熱度、法人參與、昨日漲停股的延續性、盤前公告（AI 評分）與實際走勢是否一致。\n"
+        "內容涵蓋：漲停家數與族群熱度、法人參與、昨日漲停股的延續性、120 日新高與新低的家數變化與族群（強弱勢分布）、"
+        "盤前公告（AI 評分）與實際走勢是否一致。\n"
         "名詞說明：\n"
         "- AI 評分是本站對公告內容的打分（-9～+9），不是股價漲跌；個股的實際漲跌只看「收盤±x%」。\n"
         "- 開高/平盤/開低＝開盤相對昨收 ±1%；走高/整理/走低＝全日均價相對開盤 ±1%。\n"
         "- 外資、投信數字是買賣超張數。\n"
+        "- 120 日新高／新低＝收盤價高於（低於）前 120 個交易日的最高（最低）收盤價。\n"
         "規則：\n"
         "- 只能引用下面出現的數字與個股，不可推算或編造任何數字；寫比例時用數據中的件數或百分比。\n"
         "- 判斷評分與走勢是否一致時，以各評分組的「收盤上漲件數」與「平均收盤漲跌」為準，數據不明顯時要說不明顯。\n"
@@ -298,9 +301,9 @@ def _commentary_prompt(rep: dict) -> str:
     )
 
 
-def generate_commentary(rep: dict, ai_post) -> str:
+def generate_commentary(rep: dict, ai_post, extra_lines: list | None = None) -> str:
     try:
-        text = ai_post([{"role": "user", "content": _commentary_prompt(rep)}], temperature=0.4, timeout=90)
+        text = ai_post([{"role": "user", "content": _commentary_prompt(rep, extra_lines)}], temperature=0.4, timeout=90)
         return re.sub(r"\n{3,}", "\n\n", (text or "").strip())
     except Exception as e:
         print(f"  [當日] AI 評論失敗：{e}")
@@ -325,7 +328,8 @@ def load_history(n: int = KEEP_DAYS) -> dict:
     return out
 
 
-def run(announcements: list, ai_post) -> None:
+def run(announcements: list, ai_post, extra_lines=None) -> None:
+    """extra_lines(date) → list[str]：產生評論時呼叫，取得其他模組的素材"""
     """收盤資料到齊後產生當日報告；已有報告則只補 AI 評論"""
     today = _tw_now().strftime("%Y%m%d")
     path = DATA_DIR / f"{today}.json"
@@ -347,7 +351,7 @@ def run(announcements: list, ai_post) -> None:
         print(f"  [當日] {today} 報告：" + "，".join(
             f"{c['name']} {c['matched']}/{c['window']}" for c in rep["categories"]))
     if not rep.get("commentary") and _load_limit_up(today):   # 等今日漲停資料存好，評論才有族群素材
-        rep["commentary"] = generate_commentary(rep, ai_post)
+        rep["commentary"] = generate_commentary(rep, ai_post, extra_lines(today) if extra_lines else None)
     save_report(rep)
 
 

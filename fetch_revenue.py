@@ -8705,23 +8705,28 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
                          borrow_history=_borrow_history,
                          limit_up_html=_limit_up_html)
 
+    # 新高／低先算：今日收盤價存好後，當日 AI 評論才能引用今日新高／新低
+    print("\n【120 日新高／新低】")
+    _nh_rows, _sector_map = [], {}
+    try:
+        new_high.update()
+        _sector_map = limit_up_tracker.get_sector_map()
+        _nh_rows = new_high.compute()
+        _nh_html = new_high.generate_html(_sector_map, _nh_rows)
+    except Exception as e:
+        print(f"  ⚠ 新高產生失敗：{e}")
+        _nh_html = "<div class='no-data'>新高資料產生失敗</div>"
+    html = html.replace("<!--NEW_HIGH-->", _nh_html, 1)
+
     print("\n【當日整理】")
     try:
-        daily_report.run(DAILY_ANN_LOG, _ai_post)
+        daily_report.run(DAILY_ANN_LOG, _ai_post,
+                         extra_lines=lambda d: new_high.summary_lines(_nh_rows, _sector_map, d))
         _daily_html = daily_report.generate_html()
     except Exception as e:
         print(f"  ⚠ 當日整理失敗：{e}")
         _daily_html = "<div class='no-data'>當日整理產生失敗</div>"
     html = html.replace("<!--DAILY_REPORT-->", _daily_html, 1)
-
-    print("\n【120 日新高】")
-    try:
-        new_high.update()
-        _nh_html = new_high.generate_html(limit_up_tracker.get_sector_map())
-    except Exception as e:
-        print(f"  ⚠ 新高產生失敗：{e}")
-        _nh_html = "<div class='no-data'>新高資料產生失敗</div>"
-    html = html.replace("<!--NEW_HIGH-->", _nh_html, 1)
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)

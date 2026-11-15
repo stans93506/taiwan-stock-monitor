@@ -128,8 +128,36 @@ def compute() -> list[dict]:
     return rows
 
 
-def generate_html(sector_map: dict) -> str:
-    rows = compute()
+def summary_lines(rows: list, sector_map: dict, date: str) -> list[str]:
+    """給當日 AI 評論用的新高／新低素材；rows 沒有 date 當天的資料就回傳空 list"""
+    if not any(r["date"] == date for r in rows):
+        return []
+    lines = []
+    dates = sorted({r["date"] for r in rows})[-5:]
+    lines.append("近幾日 120 日新高／新低家數：" + "、".join(
+        f"{d[4:6]}/{d[6:]} 新高{sum(1 for r in rows if r['date'] == d and r['kind'] == 'high')}"
+        f"／新低{sum(1 for r in rows if r['date'] == d and r['kind'] == 'low')}" for d in dates))
+    for kind, word in (("high", "新高"), ("low", "新低")):
+        today = [r for r in rows if r["date"] == date and r["kind"] == kind]
+        if not today:
+            continue
+        sec = {}
+        for r in today:
+            s = sector_map.get(r["code"]) or "其他"
+            sec[s] = sec.get(s, 0) + 1
+        top = sorted(sec.items(), key=lambda x: -x[1])[:5]
+        lines.append(f"今日創{word} {len(today)} 檔，族群：" + "、".join(f"{k}{v}" for k, v in top))
+        streaky = sorted([r for r in today if r["streak"] > 1], key=lambda r: -r["streak"])[:5]
+        if streaky:
+            lines.append(f"連續創{word[-1]}較久：" + "、".join(f"{r['name']}（連續{r['streak']}日）" for r in streaky))
+        big = sorted(today, key=lambda r: (r["chg"] or 0) * (-1 if kind == "high" else 1))[:5]
+        lines.append(f"今日創{word}{'漲' if kind == 'high' else '跌'}幅較大：" + "、".join(
+            f"{r['name']}（{r['chg']:+.1f}%）" for r in big if r["chg"] is not None))
+    return lines
+
+
+def generate_html(sector_map: dict, rows: list | None = None) -> str:
+    rows = compute() if rows is None else rows
     if not rows:
         n = len(_day_files())
         return (f"<div class='no-data'>歷史收盤價資料不足（目前 {n} 個交易日，需要超過 {LOOKBACK} 個），"
