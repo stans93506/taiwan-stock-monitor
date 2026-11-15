@@ -4866,8 +4866,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <button class="tab-btn" onclick="switchTab('spo', this)">現增</button>
   <button class="tab-btn" onclick="switchTab('borrow', this)">標借</button>
   <button class="tab-btn" onclick="switchTab('limitup', this)">漲停</button>
-  <button class="tab-btn" onclick="switchTab('etfperf', this)">📊 ETF績效</button>
   <button class="tab-btn" onclick="switchTab('newhigh', this)">🚀 新高</button>
+  <button class="tab-btn" onclick="switchTab('etfperf', this)">📊 ETF績效</button>
 </div>
 
 <div class="container-fluid px-4 py-3">
