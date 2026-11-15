@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-120 日新高：收盤價高於前 120 個交易日的最高收盤價。
+120 日新高／新低：收盤價高於（低於）前 120 個交易日的最高（最低）收盤價。
 每日收盤價存於 price_data/YYYYMMDD.json（{code: [收盤, 昨收]}），保留 150 個交易日；
-頁面列出最近 20 個交易日的新高股。
+頁面左右並列最近 20 個交易日的新高股與新低股。
 """
 
 import json, re, time, requests
@@ -100,26 +100,30 @@ def update() -> None:
 
 
 def compute() -> list[dict]:
-    """最近 SHOW_DAYS 個交易日中，收盤價創 120 日新高的個股"""
+    """最近 SHOW_DAYS 個交易日中，收盤價創 120 日新高（kind='high'）或新低（kind='low'）的個股"""
     days = _day_files()
     if len(days) <= LOOKBACK:
         return []
     data = [_load_json(PRICE_DIR / f"{d}.json", {}) for d in days]
     names = _load_json(NAMES_FILE, {})
     rows = []
-    streak = {}   # 代碼 → 截至前一交易日的連續創高天數
+    streak = {"high": {}, "low": {}}   # 代碼 → 截至前一交易日的連續天數
     # 從能判斷的第一天開始算（比顯示範圍多），連續天數才不會在顯示範圍起點被截斷
     for i in range(LOOKBACK, len(days)):
         window = data[i - LOOKBACK:i]
-        today = {}
+        today = {"high": {}, "low": {}}
         for code, (close, prev) in data[i].items():
             hist = [w[code][0] for w in window if code in w]
-            if len(hist) < MIN_HISTORY or close <= max(hist):
+            if len(hist) < MIN_HISTORY:
                 continue
-            today[code] = streak.get(code, 0) + 1
+            kind = "high" if close > max(hist) else "low" if close < min(hist) else None
+            if not kind:
+                continue
+            n = today[kind][code] = streak[kind].get(code, 0) + 1
             if i >= len(days) - SHOW_DAYS:
-                rows.append({"date": days[i], "code": code, "name": names.get(code, ""), "streak": today[code],
-                             "close": close, "chg": round((close / prev - 1) * 100, 2) if prev else None})
+                rows.append({"kind": kind, "date": days[i], "code": code, "name": names.get(code, ""),
+                             "streak": n, "close": close,
+                             "chg": round((close / prev - 1) * 100, 2) if prev else None})
         streak = today
     return rows
 
@@ -133,71 +137,88 @@ def generate_html(sector_map: dict) -> str:
     for r in rows:
         r["sector"] = sector_map.get(r["code"], "")
     dates = sorted({r["date"] for r in rows}, reverse=True)
-    cnt = {d: sum(1 for r in rows if r["date"] == d) for d in dates}
+    cnt = {(d, k): sum(1 for r in rows if r["date"] == d and r["kind"] == k) for d in dates for k in ("high", "low")}
     # 預設選最新一天；「全部」放最後
     opts = "".join(
-        f"<option value='{d}'{' selected' if i == 0 else ''}>{d[:4]}/{d[4:6]}/{d[6:]}（{cnt[d]} 檔）</option>"
+        f"<option value='{d}'{' selected' if i == 0 else ''}>{d[:4]}/{d[4:6]}/{d[6:]}"
+        f"（新高 {cnt[d, 'high']}／新低 {cnt[d, 'low']}）</option>"
         for i, d in enumerate(dates)) + "<option value=''>全部（最近 %d 個交易日）</option>" % len(dates)
     data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
+
+    def panel(kind, title):
+        return (f"<div class='nh-panel'><div class='nh-title'>{title} <span class='nh-note' id='nhCount_{kind}'></span></div>"
+                f"<div style='overflow-x:auto'><table class='nh-tbl'><thead><tr id='nhHead_{kind}'></tr></thead>"
+                f"<tbody id='nhBody_{kind}'></tbody></table></div></div>")
+
     return f"""
 <style>
-.nh-bar{{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin-bottom:.8rem}}
+.nh-bar{{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin-bottom:.5rem}}
 .nh-bar select,.nh-bar input{{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:.35rem;padding:.25rem .5rem}}
-.nh-note{{font-size:.8rem;color:var(--muted)}}
-.nh-tbl{{width:100%;border-collapse:collapse;font-size:.9rem;font-variant-numeric:tabular-nums}}
-.nh-tbl th,.nh-tbl td{{padding:.45rem .7rem;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}}
+.nh-note{{font-size:.8rem;color:var(--muted);font-weight:400}}
+.nh-wrap{{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;align-items:start}}   /* 固定左新高、右新低，窄螢幕各自橫向捲動 */
+.nh-panel{{min-width:0}}
+.nh-title{{font-weight:700;margin:.4rem 0}}
+.nh-tbl{{width:100%;border-collapse:collapse;font-size:.88rem;font-variant-numeric:tabular-nums}}
+.nh-tbl th,.nh-tbl td{{padding:.4rem .5rem;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}}
 .nh-tbl th{{color:var(--muted);font-weight:500;cursor:pointer;user-select:none}}
 .nh-tbl .r{{text-align:right}}
 </style>
 <div class="nh-bar">
-  <b>120 日新高</b>
+  <b>120 日新高／新低</b>
   <select id="nhDate">{opts}</select>
   <input id="nhQ" placeholder="搜尋代碼、名稱、產業" style="width:14rem">
-  <span class="nh-note" id="nhCount"></span>
 </div>
-<div class="nh-note" style="margin-bottom:.6rem">收盤價高於前 120 個交易日的最高收盤價（前 120 日資料少於 {MIN_HISTORY} 天的新上市股不列入）。漲幅為當日收盤漲跌。</div>
-<div style="overflow-x:auto"><table class="nh-tbl"><thead><tr id="nhHead"></tr></thead><tbody id="nhBody"></tbody></table></div>
+<div class="nh-note" style="margin-bottom:.4rem">收盤價高於（低於）前 120 個交易日的最高（最低）收盤價；前 120 日資料少於 {MIN_HISTORY} 天的新上市股不列入。漲幅為當日收盤漲跌。</div>
+<div class="nh-wrap">{panel('high', '120 日新高')}{panel('low', '120 日新低')}</div>
 <script>
 (function(){{
-  var R = {data}, S = {{k:'streak', d:1}};   // 預設：今日創高在前，同天數再依漲幅
-  var COLS = [['date','日期',''],['streak','連續創高',''],['code','代碼',''],['name','名稱',''],['close','價格','r'],['chg','漲幅','r'],['sector','產業類別','']];
+  var R = {data};
+  var K = {{
+    high: {{word:'高', today:'#ff6b6b', streak:'#9be7a8', S:{{k:'streak', d:1}}, tie:-1}},   // 今日創高在前，同天數漲幅大的在前
+    low:  {{word:'低', today:'#4caf50', streak:'#f4a6a6', S:{{k:'streak', d:1}}, tie:1}}     // 今日創低在前，同天數跌幅大的在前
+  }};
+  function cols(k){{ return [['date','日期',''],['streak','連續創'+K[k].word,''],['code','代碼',''],['name','名稱',''],['close','價格','r'],['chg','漲幅','r'],['sector','產業類別','']]; }}
   function esc(s){{ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }}
-  function render(){{
+  function render(kind){{
+    var c = K[kind], S = c.S;
     var d = document.getElementById('nhDate').value, q = document.getElementById('nhQ').value.trim();
     var list = R.filter(function(r){{
-      return (!d || r.date===d) && (!q || (r.code+r.name+r.sector).indexOf(q) >= 0);
+      return r.kind===kind && (!d || r.date===d) && (!q || (r.code+r.name+r.sector).indexOf(q) >= 0);
     }});
     list.sort(function(a,b){{
       var x = a[S.k], y = b[S.k];
-      if (x === y) return (b.chg||0) - (a.chg||0);      // 同值時漲幅大的在前
+      if (x === y) return ((a.chg||0) - (b.chg||0)) * c.tie;
       if (x === null || x === undefined) return 1;
       if (y === null || y === undefined) return -1;
       return (x < y ? -1 : 1) * S.d;
     }});
-    document.getElementById('nhCount').textContent = '共 ' + list.length + ' 筆';
-    document.getElementById('nhHead').innerHTML = COLS.map(function(c){{
-      return '<th class="'+c[2]+'" data-k="'+c[0]+'">'+c[1]+(S.k===c[0] ? (S.d>0?' ▲':' ▼') : ' <span style="opacity:.4">⇅</span>')+'</th>';
+    document.getElementById('nhCount_'+kind).textContent = '共 ' + list.length + ' 筆';
+    document.getElementById('nhHead_'+kind).innerHTML = cols(kind).map(function(h){{
+      return '<th class="'+h[2]+'" data-k="'+h[0]+'">'+h[1]+(S.k===h[0] ? (S.d>0?' ▲':' ▼') : ' <span style="opacity:.4">⇅</span>')+'</th>';
     }}).join('');
-    document.getElementById('nhBody').innerHTML = list.map(function(r){{
-      var c = r.chg > 0 ? '#ff6b6b' : r.chg < 0 ? '#4caf50' : 'var(--text)';
-      var st = r.streak > 1 ? '<span style="color:#9be7a8">連續'+r.streak+'日創高</span>'
-                            : '<span style="color:#ff6b6b">今日創高</span>';
+    document.getElementById('nhBody_'+kind).innerHTML = list.map(function(r){{
+      var cc = r.chg > 0 ? '#ff6b6b' : r.chg < 0 ? '#4caf50' : 'var(--text)';
+      var st = r.streak > 1 ? '<span style="color:'+c.streak+'">連續'+r.streak+'日創'+c.word+'</span>'
+                            : '<span style="color:'+c.today+'">今日創'+c.word+'</span>';
       return '<tr><td>'+r.date.slice(0,4)+'/'+r.date.slice(4,6)+'/'+r.date.slice(6)+'</td>'
         + '<td>'+st+'</td>'
         + '<td><b style="color:#4fc3f7">'+r.code+'</b></td><td>'+esc(r.name)+'</td>'
         + '<td class="r">'+r.close+'</td>'
-        + '<td class="r" style="color:'+c+'">'+(r.chg===null?'—':(r.chg>0?'+':'')+r.chg.toFixed(2)+'%')+'</td>'
+        + '<td class="r" style="color:'+cc+'">'+(r.chg===null?'—':(r.chg>0?'+':'')+r.chg.toFixed(2)+'%')+'</td>'
         + '<td>'+esc(r.sector||'—')+'</td></tr>';
     }}).join('') || '<tr><td colspan="7" class="nh-note">沒有符合條件的個股</td></tr>';
   }}
-  document.getElementById('nhDate').addEventListener('change', render);
-  document.getElementById('nhQ').addEventListener('input', render);
-  document.getElementById('nhHead').addEventListener('click', function(e){{
-    var th = e.target.closest('th'); if (!th) return;
-    var k = th.dataset.k;
-    S = {{k:k, d: S.k===k ? -S.d : (k==='code'||k==='name'||k==='sector' ? 1 : -1)}};
-    render();
+  function all(){{ render('high'); render('low'); }}
+  document.getElementById('nhDate').addEventListener('change', all);
+  document.getElementById('nhQ').addEventListener('input', all);
+  ['high','low'].forEach(function(kind){{
+    document.getElementById('nhHead_'+kind).addEventListener('click', function(e){{
+      var th = e.target.closest('th'); if (!th) return;
+      var k = th.dataset.k, S = K[kind].S;
+      K[kind].S = {{k:k, d: S.k===k ? -S.d : (k==='code'||k==='name'||k==='sector'||k==='streak' ? 1 : -1)}};
+      render(kind);
+    }});
   }});
-  render();
+  all();
 }})();
 </script>"""

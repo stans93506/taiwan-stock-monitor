@@ -4863,7 +4863,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <button class="tab-btn" onclick="switchTab('news', this)">新聞</button>
   <button class="tab-btn" onclick="switchTab('event', this)">事件</button>
   <button class="tab-btn" onclick="switchTab('limitup', this)">漲停</button>
-  <button class="tab-btn" onclick="switchTab('newhigh', this)">新高</button>
+  <button class="tab-btn" onclick="switchTab('newhigh', this)">新高/低</button>
   <button class="tab-btn" onclick="switchTab('etf', this)">主動ETF</button>
   <button class="tab-btn" onclick="switchTab('etfperf', this)">ETF績效</button>
   <button class="tab-btn" onclick="switchTab('spo', this)">現增</button>
