@@ -117,7 +117,7 @@ def _fetch_ohlc(date_str: str) -> dict:
                     continue
                 out[code] = {"name": str(row[f["證券名稱"]]).strip(), "open": o, "close": c,
                              "high": _num(row[f["最高價"]]), "low": _num(row[f["最低價"]]),
-                             "prev": round(c - diff, 2), "avg": val / vol}
+                             "prev": round(c - diff, 2), "avg": val / vol, "vol": vol}
     except Exception as e:
         print(f"  [當日] TWSE 行情失敗：{e}")
         return {}
@@ -145,7 +145,7 @@ def _fetch_ohlc(date_str: str) -> dict:
                     continue
                 out[code] = {"name": str(row[f["名稱"]]).strip(), "open": o, "close": c,
                              "high": _num(row[f["最高"]]), "low": _num(row[f["最低"]]),
-                             "prev": round(c - diff, 2), "avg": val / vol}
+                             "prev": round(c - diff, 2), "avg": val / vol, "vol": vol}
     except Exception as e:
         print(f"  [當日] TPEx 行情失敗：{e}")
         return {}

@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 120 日新高／新低：收盤價高於（低於）前 120 個交易日的最高（最低）收盤價。
-每日收盤價存於 price_data/YYYYMMDD.json（{code: [收盤, 昨收]}），保留 150 個交易日；
+每日行情存於 price_data/YYYYMMDD.json（{code: [收盤, 昨收, 開, 高, 低, 量(張)]}），保留 150 個交易日；
+頁面點個股會由瀏覽器直接讀這些檔案畫 K 線；
 頁面左右並列最近 20 個交易日的新高股與新低股。
 """
 
@@ -36,7 +37,8 @@ def save_day(date_str: str, ohlc: dict) -> None:
     if not ohlc:
         return
     PRICE_DIR.mkdir(exist_ok=True)
-    data = {c: [q["close"], q["prev"]] for c, q in ohlc.items() if not c.startswith("0")}
+    data = {c: [q["close"], q["prev"], q["open"], q["high"], q["low"], round(q["vol"] / 1000)]
+            for c, q in ohlc.items() if not c.startswith("0")}
     (PRICE_DIR / f"{date_str}.json").write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
     names = _load_json(NAMES_FILE, {})
     names.update({c: q["name"] for c, q in ohlc.items() if not c.startswith("0")})
@@ -112,7 +114,7 @@ def compute() -> list[dict]:
     for i in range(LOOKBACK, len(days)):
         window = data[i - LOOKBACK:i]
         today = {"high": {}, "low": {}}
-        for code, (close, prev) in data[i].items():
+        for code, (close, prev, *_) in data[i].items():
             hist = [w[code][0] for w in window if code in w]
             if len(hist) < MIN_HISTORY:
                 continue
@@ -172,6 +174,7 @@ def generate_html(sector_map: dict, rows: list | None = None) -> str:
         f"（新高 {cnt[d, 'high']}／新低 {cnt[d, 'low']}）</option>"
         for i, d in enumerate(dates)) + "<option value=''>全部（最近 %d 個交易日）</option>" % len(dates)
     data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
+    days = json.dumps(_day_files())
 
     def panel(kind, title):
         return (f"<div class='nh-panel'><div class='nh-title'>{title} <span class='nh-note' id='nhCount_{kind}'></span></div>"
@@ -190,17 +193,22 @@ def generate_html(sector_map: dict, rows: list | None = None) -> str:
 .nh-tbl th,.nh-tbl td{{padding:.4rem .5rem;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}}
 .nh-tbl th{{color:var(--muted);font-weight:500;cursor:pointer;user-select:none}}
 .nh-tbl .r{{text-align:right}}
+.nh-tbl tr[data-code]{{cursor:pointer}}
+.nh-tbl tr[data-code]:hover td{{background:rgba(255,255,255,.04)}}
+.nh-tbl tr.nh-k td{{padding:.3rem .2rem .8rem;white-space:normal}}
+.nh-chart{{height:340px}}
 </style>
 <div class="nh-bar">
   <b>120 日新高／新低</b>
   <select id="nhDate">{opts}</select>
   <input id="nhQ" placeholder="搜尋代碼、名稱、產業" style="width:14rem">
 </div>
-<div class="nh-note" style="margin-bottom:.4rem">收盤價高於（低於）前 120 個交易日的最高（最低）收盤價；前 120 日資料少於 {MIN_HISTORY} 天的新上市股不列入。漲幅為當日收盤漲跌。</div>
+<div class="nh-note" style="margin-bottom:.4rem">收盤價高於（低於）前 120 個交易日的最高（最低）收盤價；前 120 日資料少於 {MIN_HISTORY} 天的新上市股不列入。漲幅為當日收盤漲跌。點個股可展開 K 線圖。</div>
 <div class="nh-wrap">{panel('high', '120 日新高')}{panel('low', '120 日新低')}</div>
 <script>
 (function(){{
   var R = {data};
+  var DAYS = {days};
   var K = {{
     high: {{word:'高', today:'#ff6b6b', streak:'#9be7a8', S:{{k:'streak', d:1}}, tie:-1}},   // 今日創高在前，同天數漲幅大的在前
     low:  {{word:'低', today:'#4caf50', streak:'#f4a6a6', S:{{k:'streak', d:1}}, tie:1}}     // 今日創低在前，同天數跌幅大的在前
@@ -228,7 +236,7 @@ def generate_html(sector_map: dict, rows: list | None = None) -> str:
       var cc = r.chg > 0 ? '#ff6b6b' : r.chg < 0 ? '#4caf50' : 'var(--text)';
       var st = r.streak > 1 ? '<span style="color:'+c.streak+'">連續'+r.streak+'日創'+c.word+'</span>'
                             : '<span style="color:'+c.today+'">今日創'+c.word+'</span>';
-      return '<tr><td>'+r.date.slice(0,4)+'/'+r.date.slice(4,6)+'/'+r.date.slice(6)+'</td>'
+      return '<tr data-code="'+r.code+'" data-date="'+r.date+'"><td>'+r.date.slice(0,4)+'/'+r.date.slice(4,6)+'/'+r.date.slice(6)+'</td>'
         + '<td>'+st+'</td>'
         + '<td><b style="color:#4fc3f7">'+r.code+'</b></td><td>'+esc(r.name)+'</td>'
         + '<td class="r">'+r.close+'</td>'
@@ -237,9 +245,77 @@ def generate_html(sector_map: dict, rows: list | None = None) -> str:
     }}).join('') || '<tr><td colspan="7" class="nh-note">沒有符合條件的個股</td></tr>';
   }}
   function all(){{ render('high'); render('low'); }}
+  // ── K 線：第一次點開才載入圖表套件與 price_data 每日行情（之後共用快取）──
+  var LIB = null, PD = null;
+  function loadLib(){{
+    return LIB || (LIB = new Promise(function(ok, no){{
+      var s = document.createElement('script');
+      s.src = 'https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js';
+      s.onload = ok; s.onerror = function(){{ LIB = null; no(); }};
+      document.head.appendChild(s);
+    }}));
+  }}
+  function loadDays(){{
+    return PD || (PD = Promise.all(DAYS.map(function(d){{
+      return fetch('price_data/'+d+'.json').then(function(r){{ return r.ok ? r.json() : {{}}; }}).catch(function(){{ return {{}}; }});
+    }})));
+  }}
+  function ymd(d){{ return d.slice(0,4)+'-'+d.slice(4,6)+'-'+d.slice(6); }}
+  function drawK(box, code, date, kind){{
+    Promise.all([loadLib(), loadDays()]).then(function(res){{
+      var bars = [], vols = [];
+      res[1].forEach(function(dd, i){{
+        var v = dd[code]; if (!v || v.length < 6) return;   // 舊格式（只有收盤）的日子略過
+        var t = ymd(DAYS[i]);
+        bars.push({{time:t, open:v[2], high:v[3], low:v[4], close:v[0]}});
+        vols.push({{time:t, value:v[5], color: v[0] >= v[2] ? 'rgba(255,107,107,.45)' : 'rgba(76,175,80,.45)'}});
+      }});
+      if (!bars.length) {{ box.innerHTML = '<span class="nh-note">尚無 K 線資料</span>'; return; }}
+      box.innerHTML = '';
+      var ch = LightweightCharts.createChart(box, {{
+        autoSize: true,
+        layout: {{background: {{color: 'transparent'}}, textColor: '#9aa0aa'}},
+        grid: {{vertLines: {{color: 'rgba(255,255,255,.05)'}}, horzLines: {{color: 'rgba(255,255,255,.05)'}}}},
+        rightPriceScale: {{borderColor: '#30363d'}}, timeScale: {{borderColor: '#30363d'}},
+        localization: {{dateFormat: 'yyyy/MM/dd'}}
+      }});
+      box.parentNode.parentNode._chart = ch;
+      var cs = ch.addCandlestickSeries({{upColor:'#ff6b6b', downColor:'#4caf50', borderUpColor:'#ff6b6b',
+        borderDownColor:'#4caf50', wickUpColor:'#ff6b6b', wickDownColor:'#4caf50'}});
+      cs.setData(bars);
+      cs.priceScale().applyOptions({{scaleMargins: {{top: .05, bottom: .25}}}});
+      var vs = ch.addHistogramSeries({{priceFormat: {{type: 'volume'}}, priceScaleId: 'vol', lastValueVisible: false, priceLineVisible: false}});
+      vs.priceScale().applyOptions({{scaleMargins: {{top: .8, bottom: 0}}}});
+      vs.setData(vols);
+      [[5, '#f5c542'], [20, '#4fc3f7'], [60, '#c792ea']].forEach(function(m){{
+        var ma = [], sum = 0;
+        bars.forEach(function(b, i){{
+          sum += b.close; if (i >= m[0]) sum -= bars[i - m[0]].close;
+          if (i >= m[0] - 1) ma.push({{time: b.time, value: +(sum / m[0]).toFixed(2)}});
+        }});
+        ch.addLineSeries({{color: m[1], lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false}}).setData(ma);
+      }});
+      var hi = kind === 'high';
+      cs.setMarkers([{{time: ymd(date), position: hi ? 'aboveBar' : 'belowBar', color: hi ? '#ff6b6b' : '#4caf50',
+                      shape: hi ? 'arrowDown' : 'arrowUp', text: '創' + K[kind].word}}]);
+      ch.timeScale().fitContent();
+    }}).catch(function(){{ box.innerHTML = '<span class="nh-note">K 線資料載入失敗，請稍後再試</span>'; }});
+  }}
   document.getElementById('nhDate').addEventListener('change', all);
   document.getElementById('nhQ').addEventListener('input', all);
   ['high','low'].forEach(function(kind){{
+    document.getElementById('nhBody_'+kind).addEventListener('click', function(e){{
+      var tr = e.target.closest('tr[data-code]'); if (!tr) return;
+      var nx = tr.nextElementSibling;
+      if (nx && nx.classList.contains('nh-k')) {{ if (nx._chart) nx._chart.remove(); nx.remove(); return; }}
+      var row = document.createElement('tr'); row.className = 'nh-k';
+      row.innerHTML = '<td colspan="7"><div class="nh-note" style="margin-bottom:.2rem">'
+        + tr.dataset.code + ' 近 ' + DAYS.length + ' 個交易日 K 線　'
+        + '<span style="color:#f5c542">MA5</span>　<span style="color:#4fc3f7">MA20</span>　<span style="color:#c792ea">MA60</span>　量（張）</div>'
+        + '<div class="nh-chart"><span class="nh-note">載入 K 線資料中…（第一次約需數秒）</span></div></td>';
+      tr.after(row);
+      drawK(row.querySelector('.nh-chart'), tr.dataset.code, tr.dataset.date, kind);
+    }});
     document.getElementById('nhHead_'+kind).addEventListener('click', function(e){{
       var th = e.target.closest('th'); if (!th) return;
       var k = th.dataset.k, S = K[kind].S;
