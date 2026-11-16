@@ -212,7 +212,7 @@ def build_report(today: str, announcements: list, ohlc: dict) -> dict:
             continue
         c["matched"] += 1
         oc, tr = classify(q)
-        b = bucket(a.get("score"))
+        b = "利多" if a["cat"] == "庫藏股" else bucket(a.get("score"))  # 庫藏股一律視為利多
         s = a.get("score")
         chg = (q["close"] / q["prev"] - 1) * 100
         tag = (f"評分{'+' if s > 0 else ''}{s}，" if s is not None else "") + f"收盤{chg:+.1f}%"
