@@ -246,7 +246,7 @@ def generate_html(sector_map: dict, rows: list | None = None) -> str:
   }}
   function all(){{ render('high'); render('low'); }}
   // ── K 線：第一次點開才載入圖表套件與 price_data 每日行情（之後共用快取）──
-  var LIB = null, PD = null;
+  var LIB = null, PD = null, ZOOM = null;
   function loadLib(){{
     return LIB || (LIB = new Promise(function(ok, no){{
       var s = document.createElement('script');
@@ -280,6 +280,7 @@ def generate_html(sector_map: dict, rows: list | None = None) -> str:
         localization: {{dateFormat: 'yyyy/MM/dd'}}
       }});
       box.parentNode.parentNode._chart = ch;
+      box.parentNode.parentNode._n = bars.length;
       var cs = ch.addCandlestickSeries({{upColor:'#ff6b6b', downColor:'#4caf50', borderUpColor:'#ff6b6b',
         borderDownColor:'#4caf50', wickUpColor:'#ff6b6b', wickDownColor:'#4caf50'}});
       cs.setData(bars);
@@ -298,7 +299,8 @@ def generate_html(sector_map: dict, rows: list | None = None) -> str:
       var hi = kind === 'high';
       cs.setMarkers([{{time: ymd(date), position: hi ? 'aboveBar' : 'belowBar', color: hi ? '#ff6b6b' : '#4caf50',
                       shape: hi ? 'arrowDown' : 'arrowUp', text: '創' + K[kind].word}}]);
-      ch.timeScale().fitContent();
+      if (ZOOM) ch.timeScale().setVisibleLogicalRange({{from: bars.length - 1 - ZOOM.from, to: bars.length - 1 - ZOOM.to}});
+      else ch.timeScale().fitContent();
     }}).catch(function(){{ box.innerHTML = '<span class="nh-note">K 線資料載入失敗，請稍後再試</span>'; }});
   }}
   document.getElementById('nhDate').addEventListener('change', all);
@@ -309,7 +311,15 @@ def generate_html(sector_map: dict, rows: list | None = None) -> str:
       var nx = tr.nextElementSibling;
       var wasOpen = nx && nx.classList.contains('nh-k');
       // 一次只開一檔：先關掉左右兩表所有已展開的 K 線
-      document.querySelectorAll('.nh-tbl tr.nh-k').forEach(function(k){{ if (k._chart) k._chart.remove(); k.remove(); }});
+      document.querySelectorAll('.nh-tbl tr.nh-k').forEach(function(k){{
+        if (k._chart) {{
+          // 記住目前的縮放／捲動位置（以「距最後一根 K 棒幾根」記），下一檔沿用
+          var r = k._chart.timeScale().getVisibleLogicalRange();
+          if (r) ZOOM = {{from: k._n - 1 - r.from, to: k._n - 1 - r.to}};
+          k._chart.remove();
+        }}
+        k.remove();
+      }});
       if (wasOpen) return;
       var row = document.createElement('tr'); row.className = 'nh-k';
       row.innerHTML = '<td colspan="7"><div class="nh-note" style="margin-bottom:.2rem">'
