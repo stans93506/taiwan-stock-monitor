@@ -307,7 +307,10 @@ def generate_html(sector_map: dict, rows: list | None = None) -> str:
     document.getElementById('nhBody_'+kind).addEventListener('click', function(e){{
       var tr = e.target.closest('tr[data-code]'); if (!tr) return;
       var nx = tr.nextElementSibling;
-      if (nx && nx.classList.contains('nh-k')) {{ if (nx._chart) nx._chart.remove(); nx.remove(); return; }}
+      var wasOpen = nx && nx.classList.contains('nh-k');
+      // 一次只開一檔：先關掉左右兩表所有已展開的 K 線
+      document.querySelectorAll('.nh-tbl tr.nh-k').forEach(function(k){{ if (k._chart) k._chart.remove(); k.remove(); }});
+      if (wasOpen) return;
       var row = document.createElement('tr'); row.className = 'nh-k';
       row.innerHTML = '<td colspan="7"><div class="nh-note" style="margin-bottom:.2rem">'
         + tr.dataset.code + ' 近 ' + DAYS.length + ' 個交易日 K 線　'
