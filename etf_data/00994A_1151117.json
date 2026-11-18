@@ -157,15 +157,15 @@
       "weight": 0.43
     },
     {
-      "code": "6526",
-      "name": "達發",
-      "shares": 16000,
-      "weight": 0.38
-    },
-    {
       "code": "2345",
       "name": "智邦",
       "shares": 8000,
+      "weight": 0.38
+    },
+    {
+      "code": "6526",
+      "name": "達發",
+      "shares": 16000,
       "weight": 0.38
     },
     {
@@ -193,5 +193,5 @@
       "weight": 0.01
     }
   ],
-  "fetch_time": "15:49"
+  "fetch_time": "16:10"
 }
