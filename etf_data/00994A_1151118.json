@@ -115,15 +115,15 @@
       "weight": 1.6
     },
     {
-      "code": "3044",
-      "name": "健鼎",
-      "shares": 54000,
-      "weight": 0.91
-    },
-    {
       "code": "3231",
       "name": "緯創",
       "shares": 161000,
+      "weight": 0.91
+    },
+    {
+      "code": "3044",
+      "name": "健鼎",
+      "shares": 54000,
       "weight": 0.91
     },
     {
@@ -193,5 +193,5 @@
       "weight": 0.01
     }
   ],
-  "fetch_time": "09:14"
+  "fetch_time": "09:38"
 }
