@@ -43,6 +43,7 @@ ETF_LIST = [
 INDEX_LIST = [
     {"code": "TWII",  "name": "加權指數",    "color": "#c9d1d9", "source": "yahoo",   "yahoo": "^TWII",  "start": "2003-01-01", "in_chart": False},
     {"code": "TWIIR", "name": "加權報酬指數", "color": "#c9d1d9", "source": "twse_tr", "start": "2009-01-05", "in_chart": True},
+    {"code": "TPEXR", "name": "櫃買報酬指數", "color": "#b08968", "source": "tpex_roe", "start": "2009-01-05", "in_chart": True},
 ]
 
 # ── FinMind 抓取 ──────────────────────────────────────────────────────────
@@ -183,6 +184,22 @@ def fetch_twse_tr_index(date_str: str) -> float | None:
     return None
 
 
+def fetch_tpex_roe_month(ym: str) -> list:
+    """從櫃買中心「櫃買指數與報酬指數(月查詢)」抓某月每日的櫃買報酬指數（含息）。ym = 'YYYY-MM'"""
+    resp = requests.get(
+        "https://www.tpex.org.tw/www/zh-tw/indexInfo/ROE",
+        params={"date": ym.replace("-", "/") + "/01", "response": "json"},
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=15,
+    )
+    out = []
+    for row in resp.json()["tables"][0]["data"]:
+        roc = row[0]   # 民國年 YYYMMDD 或 YYMMDD
+        d = f"{int(roc[:-4]) + 1911}-{roc[-4:-2]}-{roc[-2:]}"
+        out.append([d, float(row[2].replace(",", ""))])
+    return out
+
+
 def update_index(idx: dict, cache: dict) -> dict:
     code   = idx["code"]
     name   = idx["name"]
@@ -256,6 +273,35 @@ def update_index(idx: dict, cache: dict) -> dict:
         ec["prices"] = prices
         ec["name"]   = name
         cache[code]  = ec
+        return cache
+
+    elif source == "tpex_roe":
+        ec = cache.get(code, {"prices": []})
+        prices = ec.get("prices", [])
+        # 從快取最後一天所在月份（重抓以補齊該月）抓到本月，一次一個月
+        y, m = map(int, (prices[-1][0] if prices else start)[:7].split("-"))
+        today = date.today()
+        months = []
+        while (y, m) <= (today.year, today.month):
+            months.append(f"{y:04d}-{m:02d}")
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        print(f"  [{code}] 抓 {months[0]}~{months[-1]} 共 {len(months)} 個月...", end="", flush=True)
+        got = {p[0]: p for p in prices}
+        before = len(got)
+        for i, ym in enumerate(months):
+            try:
+                for p in fetch_tpex_roe_month(ym):
+                    if p[0] >= start:
+                        got[p[0]] = p
+            except Exception as e:
+                print(f" {ym} 失敗（{e}），下次再補", end="")
+                break   # 中斷以免留下缺口，下次從最後一天的月份接著抓
+            if i < len(months) - 1:
+                time.sleep(1.5)
+        ec["prices"] = sorted(got.values(), key=lambda x: x[0])
+        ec["name"]   = name
+        cache[code]  = ec
+        print(f" +{len(got) - before} 筆")
         return cache
 
     return cache
