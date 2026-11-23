@@ -1,0 +1,173 @@
+{
+  "etf_code": "00994A",
+  "etf_name": "主動第一金台股優選",
+  "date": "115/11/23",
+  "nav_per_unit": 11.1,
+  "nav_total": 2498524349.0,
+  "units": 225190000.0,
+  "holdings": [
+    {
+      "code": "2330",
+      "name": "台積電",
+      "shares": 249000,
+      "weight": 20.21
+    },
+    {
+      "code": "2454",
+      "name": "聯發科",
+      "shares": 58101,
+      "weight": 8.57
+    },
+    {
+      "code": "3017",
+      "name": "奇鋐",
+      "shares": 83500,
+      "weight": 7.9
+    },
+    {
+      "code": "3037",
+      "name": "欣興",
+      "shares": 239001,
+      "weight": 5.34
+    },
+    {
+      "code": "2383",
+      "name": "台光電",
+      "shares": 41002,
+      "weight": 5.07
+    },
+    {
+      "code": "3653",
+      "name": "健策",
+      "shares": 29000,
+      "weight": 4.28
+    },
+    {
+      "code": "3443",
+      "name": "創意",
+      "shares": 19550,
+      "weight": 4.01
+    },
+    {
+      "code": "1303",
+      "name": "南亞",
+      "shares": 417000,
+      "weight": 3.78
+    },
+    {
+      "code": "2368",
+      "name": "金像電",
+      "shares": 112000,
+      "weight": 3.51
+    },
+    {
+      "code": "6805",
+      "name": "富世達",
+      "shares": 52000,
+      "weight": 3.03
+    },
+    {
+      "code": "6510",
+      "name": "精測",
+      "shares": 28000,
+      "weight": 2.53
+    },
+    {
+      "code": "3189",
+      "name": "景碩",
+      "shares": 120000,
+      "weight": 2.25
+    },
+    {
+      "code": "3711",
+      "name": "日月光投控",
+      "shares": 107002,
+      "weight": 2.06
+    },
+    {
+      "code": "3661",
+      "name": "世芯-KY",
+      "shares": 14000,
+      "weight": 1.99
+    },
+    {
+      "code": "8996",
+      "name": "高力",
+      "shares": 52000,
+      "weight": 1.79
+    },
+    {
+      "code": "8046",
+      "name": "南電",
+      "shares": 61000,
+      "weight": 1.64
+    },
+    {
+      "code": "3044",
+      "name": "健鼎",
+      "shares": 69000,
+      "weight": 1.22
+    },
+    {
+      "code": "3231",
+      "name": "緯創",
+      "shares": 161000,
+      "weight": 0.96
+    },
+    {
+      "code": "2303",
+      "name": "聯電",
+      "shares": 240000,
+      "weight": 0.85
+    },
+    {
+      "code": "2891",
+      "name": "中信金",
+      "shares": 302000,
+      "weight": 0.77
+    },
+    {
+      "code": "6223",
+      "name": "旺矽",
+      "shares": 5000,
+      "weight": 0.76
+    },
+    {
+      "code": "2301",
+      "name": "光寶科",
+      "shares": 90000,
+      "weight": 0.67
+    },
+    {
+      "code": "6526",
+      "name": "達發",
+      "shares": 26000,
+      "weight": 0.63
+    },
+    {
+      "code": "4904",
+      "name": "遠傳",
+      "shares": 123001,
+      "weight": 0.51
+    },
+    {
+      "code": "3105",
+      "name": "穩懋",
+      "shares": 28000,
+      "weight": 0.46
+    },
+    {
+      "code": "2345",
+      "name": "智邦",
+      "shares": 8000,
+      "weight": 0.43
+    },
+    {
+      "code": "3081",
+      "name": "聯亞",
+      "shares": 6000,
+      "weight": 0.33
+    }
+  ],
+  "fetch_time": "17:22"
+}
