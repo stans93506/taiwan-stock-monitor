@@ -193,6 +193,12 @@ def _settlement_days(holidays: set, start: date, end: date) -> list[date]:
     return out
 
 
+def _is_invited(desc: str) -> bool:
+    """公開資訊觀測站沒有獨立欄位，從摘要判斷：受券商等邀請參加的論壇 vs 公司自己舉辦"""
+    return bool(re.search(r"受邀|邀請|應邀|證券.{0,8}(舉辦|主辦|合辦)|論壇|Forum|Conference|Corporate Day|Tech Tour",
+                          desc, re.I))
+
+
 def build_events() -> list[dict]:
     cache, manual = _load(CACHE_FILE, {}), _load(MANUAL_FILE, {})
     today = date.today()
@@ -251,7 +257,8 @@ def build_events() -> list[dict]:
             k = (r["code"], r["date"], r["time"])
             if r["code"] in watch_tw and k not in seen:
                 seen.add(k)
-                add(date.fromisoformat(r["date"]), r["time"], "tw", f"{r['name']} 法說會",
+                kind = "受邀" if _is_invited(r["desc"]) else "自辦"
+                add(date.fromisoformat(r["date"]), r["time"], "tw", f"{r['name']} 法說會（{kind}）",
                     f"{r['code']}｜{r['place']}｜{r['desc']}")
 
     # 美股財報
