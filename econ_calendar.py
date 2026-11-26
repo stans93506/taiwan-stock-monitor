@@ -292,8 +292,8 @@ def generate_html() -> str:
 .cal-grid .out{{opacity:.35}}
 .cal-grid .today{{background:rgba(79,195,247,.08);outline:1px solid #4fc3f7;outline-offset:-1px}}
 .cal-dn{{font-weight:700;margin-bottom:.15rem}}
-.cal-ev{{display:block;margin:.12rem 0;padding:.05rem .3rem;border-radius:.25rem;border-left:3px solid;background:rgba(255,255,255,.04);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}}
-.cal-ev .tm{{color:var(--muted);margin-right:.25rem}}
+.cal-ev{{display:block;margin:.15rem 0;padding:.1rem .35rem;border-radius:.25rem;border-left:4px solid;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}}
+.cal-ev .tm{{margin-right:.3rem;font-weight:700}}
 .cal-badge{{font-size:.68rem;padding:0 .25rem;border-radius:.2rem;margin-left:.2rem}}
 .cal-detail{{margin-top:.6rem;padding:.6rem .8rem;border:1px solid var(--border);border-radius:.4rem;background:var(--surface);font-size:.88rem;display:none}}
 .cal-note{{font-size:.8rem;color:var(--muted)}}
@@ -339,8 +339,8 @@ def generate_html() -> str:
       var evs = (byDay[k] || []).filter(function(e){{ return on[e.cat]; }});
       h += '<div class="'+cls+'"><div class="cal-dn">'+d.getDate()+'</div>' + evs.map(function(e){{
         var c = CAT[e.cat][1], b = ST[e.st] ? '<span class="cal-badge" style="background:'+ST[e.st][1]+'">'+ST[e.st][0]+'</span>' : '';
-        return '<span class="cal-ev" data-i="'+e.i+'" style="border-color:'+c+'" title="'+esc(e.title+'　'+e.note)+'">'
-          + (e.t ? '<span class="tm">'+esc(e.t)+'</span>' : '') + esc(e.title) + b + '</span>';
+        return '<span class="cal-ev" data-i="'+e.i+'" style="border-color:'+c+';background:'+c+'2e" title="'+esc(e.title+'　'+e.note)+'">'
+          + (e.t ? '<span class="tm" style="color:'+c+'">'+esc(e.t)+'</span>' : '') + esc(e.title) + b + '</span>';
       }}).join('') + '</div>';
     }}
     document.getElementById('calGrid').innerHTML = h;
