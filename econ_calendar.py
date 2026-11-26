@@ -4,7 +4,7 @@
   - 美國重要數據：calendar_manual.json 的全年日程（BLS/BEA），每週以 ForexFactory 核對更正；
     另把 ForexFactory 當週其他美國高重要性事件一併列入；FOMC 由聯準會網站自動抓全年
   - 台指期結算日：每月第三個星期三，遇休市順延（休市日來自證交所 OpenAPI）
-  - 台股法說會：公開資訊觀測站，只列 0050 成分股（成分股取自元大投信網頁）
+  - 台股法說會：公開資訊觀測站，只列 calendar_manual.json 的 tw_conf_watch（目前只有台積電）
   - 美股財報：calendar_manual.json 的追蹤清單，日期向 Nasdaq 查詢（查不到可手動補）
 網路抓取都有節流（各自幾小時～一週一次），結果存 calendar_cache.json。
 """
@@ -100,23 +100,6 @@ def _fetch_holidays(cache: dict) -> None:
     cache["holidays"] = sorted(hol)
 
 
-def _fetch_tw50(cache: dict) -> None:
-    t = requests.get("https://www.yuantaetfs.com/product/detail/0050/ratio", headers=_UA, timeout=30).text
-    # 頁面內嵌資料為「代號, 中文名, 英文名」；重複出現的中文名會被壓縮成變數（不帶引號），所以中文名可能拿不到
-    found = {}
-    for code, name, en in re.findall(r'"(\d{4})",("[^"]*"|[^,"]+),"([A-Za-z][^"]*)"', t):
-        quoted = name.startswith('"')
-        if quoted and not re.search(r"[一-鿿]", name):
-            continue   # 例如 ETF 代號，不是成分股
-        if re.search(r"\b(co|corp|corporation|inc|ltd|limited|holdings?|group|company|bank)\b", en, re.I):
-            found[code] = name.strip('"').rstrip("*") if quoted else ""
-    if 40 <= len(found) <= 60:   # 解析結果不合理就沿用舊名單
-        cache["tw50"] = found
-        print(f"  [行事曆] 0050 成分股 {len(found)} 檔")
-    else:
-        print(f"  [行事曆] ⚠ 0050 成分股解析異常（{len(found)} 檔），沿用舊名單")
-
-
 def _fetch_mops(cache: dict, ym: str) -> None:
     y, m = map(int, ym.split("-"))
     r = requests.post("https://mopsov.twse.com.tw/mops/web/ajax_t100sb02_1", headers=_UA, timeout=30,
@@ -169,8 +152,7 @@ def update() -> None:
     nxt = (today.replace(day=1) + timedelta(days=32)).replace(day=1)
     jobs = [("ff", 6, lambda: _fetch_ff(cache)),
             ("fomc", 24, lambda: _fetch_fomc(cache)),
-            ("holidays", 24 * 7, lambda: _fetch_holidays(cache)),
-            ("tw50", 24 * 7, lambda: _fetch_tw50(cache))]
+            ("holidays", 24 * 7, lambda: _fetch_holidays(cache))]
     for ym in (today.strftime("%Y-%m"), nxt.strftime("%Y-%m")):
         jobs.append((f"mops{ym}", 6, lambda ym=ym: _fetch_mops(cache, ym)))
     for tk in manual.get("us_earnings_watch", {}):
@@ -261,13 +243,13 @@ def build_events() -> list[dict]:
     for d in _settlement_days(set(cache.get("holidays", [])), start, end):
         add(d, "13:30", "settle", "台指期結算", "台指期／台指選擇權月結算（每月第三個星期三，遇休市順延）")
 
-    # 台股法說會（0050 成分股）
-    tw50 = cache.get("tw50", {})
+    # 台股法說會（只列追蹤清單）
+    watch_tw = manual.get("tw_conf_watch", {})
     seen = set()
     for rows in cache.get("mops", {}).values():
         for r in rows:
             k = (r["code"], r["date"], r["time"])
-            if r["code"] in tw50 and k not in seen:
+            if r["code"] in watch_tw and k not in seen:
                 seen.add(k)
                 add(date.fromisoformat(r["date"]), r["time"], "tw", f"{r['name']} 法說會",
                     f"{r['code']}｜{r['place']}｜{r['desc']}")
@@ -310,8 +292,8 @@ def generate_html() -> str:
 .cal-grid .out{{opacity:.35}}
 .cal-grid .today{{background:rgba(79,195,247,.08);outline:1px solid #4fc3f7;outline-offset:-1px}}
 .cal-dn{{font-weight:700;margin-bottom:.15rem}}
-.cal-ev{{display:block;margin:.12rem 0;padding:.05rem .3rem;border-radius:.25rem;border-left:3px solid;background:rgba(255,255,255,.04);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}}
-.cal-ev .tm{{color:var(--muted);margin-right:.25rem}}
+.cal-ev{{display:block;margin:.15rem 0;padding:.1rem .35rem;border-radius:.25rem;border-left:4px solid;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}}
+.cal-ev .tm{{margin-right:.3rem;font-weight:700}}
 .cal-badge{{font-size:.68rem;padding:0 .25rem;border-radius:.2rem;margin-left:.2rem}}
 .cal-detail{{margin-top:.6rem;padding:.6rem .8rem;border:1px solid var(--border);border-radius:.4rem;background:var(--surface);font-size:.88rem;display:none}}
 .cal-note{{font-size:.8rem;color:var(--muted)}}
@@ -327,7 +309,7 @@ def generate_html() -> str:
 <div class="cal-note" style="margin-top:.5rem">
   美國數據與 FOMC 以<b>台灣時間</b>標示（FOMC 決議通常在台灣隔日凌晨）；全年日程來自 BLS／BEA／聯準會，ForexFactory 公布當週日程後自動核對：
   <span class="cal-badge" style="background:#1f6f43">已確認</span> 日期相符，<span class="cal-badge" style="background:#8a5a00">已更正</span> 已改為 ForexFactory 的日期。
-  美股財報為美東日期，<span class="cal-badge" style="background:#444">預估</span> 表示 Nasdaq 預估、公司尚未正式公告。台股法說會只列 0050 成分股。點事件看詳細內容。
+  美股財報為美東日期，<span class="cal-badge" style="background:#444">預估</span> 表示 Nasdaq 預估、公司尚未正式公告。台股法說會只列追蹤清單（目前為台積電）。點事件看詳細內容。
 </div>
 <script>
 (function(){{
@@ -357,8 +339,8 @@ def generate_html() -> str:
       var evs = (byDay[k] || []).filter(function(e){{ return on[e.cat]; }});
       h += '<div class="'+cls+'"><div class="cal-dn">'+d.getDate()+'</div>' + evs.map(function(e){{
         var c = CAT[e.cat][1], b = ST[e.st] ? '<span class="cal-badge" style="background:'+ST[e.st][1]+'">'+ST[e.st][0]+'</span>' : '';
-        return '<span class="cal-ev" data-i="'+e.i+'" style="border-color:'+c+'" title="'+esc(e.title+'　'+e.note)+'">'
-          + (e.t ? '<span class="tm">'+esc(e.t)+'</span>' : '') + esc(e.title) + b + '</span>';
+        return '<span class="cal-ev" data-i="'+e.i+'" style="border-color:'+c+';background:'+c+'2e" title="'+esc(e.title+'　'+e.note)+'">'
+          + (e.t ? '<span class="tm" style="color:'+c+'">'+esc(e.t)+'</span>' : '') + esc(e.title) + b + '</span>';
       }}).join('') + '</div>';
     }}
     document.getElementById('calGrid').innerHTML = h;
