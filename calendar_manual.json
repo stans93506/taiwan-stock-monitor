@@ -1,5 +1,5 @@
 {
-  "_說明": "行事曆手動資料。us_data：美國重要數據（美東時間），每年依 BLS / BEA 公布的全年日程更新一次；雲端每週會用 ForexFactory 核對並自動更正。us_earnings_watch：要追蹤財報的美股（代號: 中文名），日期由雲端向 Nasdaq 查詢；us_earnings_manual：Nasdaq 查不到時手動補（date 為美東日期）。extra：其他自訂事件（date 為台灣日期）。",
+  "_說明": "行事曆手動資料。us_data：美國重要數據（美東時間），每年依 BLS / BEA 公布的全年日程更新一次；雲端每週會用 ForexFactory 核對並自動更正。tw_conf_watch：要列法說會的台股（代號: 名稱）。us_earnings_watch：要追蹤財報的美股（代號: 中文名），日期由雲端向 Nasdaq 查詢；us_earnings_manual：Nasdaq 查不到時手動補（date 為美東日期）。extra：其他自訂事件（date 為台灣日期）。",
   "us_data": [
     {"key": "NFP", "date": "2026-11-06", "time_et": "08:30", "ref": "10月"},
     {"key": "NFP", "date": "2026-12-04", "time_et": "08:30", "ref": "11月"},
@@ -50,6 +50,7 @@
     {"key": "PCE", "date": "2026-11-25", "time_et": "08:30", "ref": "10月"},
     {"key": "PCE", "date": "2026-12-23", "time_et": "08:30", "ref": "11月"}
   ],
+  "tw_conf_watch": {"2330": "台積電"},
   "us_earnings_watch": {
     "NVDA": "輝達", "AAPL": "蘋果", "MSFT": "微軟", "GOOGL": "Alphabet", "AMZN": "亞馬遜",
     "META": "Meta", "TSLA": "特斯拉", "AVGO": "博通", "AMD": "超微", "MU": "美光", "ORCL": "甲骨文"
