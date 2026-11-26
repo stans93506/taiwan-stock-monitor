@@ -25,6 +25,7 @@ import etf_tracker
 import limit_up_tracker
 import daily_report
 import new_high
+import econ_calendar
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -4862,6 +4863,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <button class="tab-btn" onclick="switchTab('monthly', this)">月自結</button>
   <button class="tab-btn" onclick="switchTab('news', this)">新聞</button>
   <button class="tab-btn" onclick="switchTab('event', this)">事件</button>
+  <button class="tab-btn" onclick="switchTab('calendar', this)">行事曆</button>
   <button class="tab-btn" onclick="switchTab('limitup', this)">漲停</button>
   <button class="tab-btn" onclick="switchTab('newhigh', this)">新高/低</button>
   <button class="tab-btn" onclick="switchTab('etf', this)">主動ETF</button>
@@ -5115,6 +5117,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <!-- ═══ 新高分頁（內容於 generate_html 之後填入）═══ -->
+  <div id="tab-calendar" class="tab-pane">
+    <!--CALENDAR-->
+  </div>
   <div id="tab-newhigh" class="tab-pane">
     <!--NEW_HIGH-->
   </div>
@@ -8717,6 +8722,15 @@ def main(cached_news=None, news_fetch_time: "datetime | None" = None):
         print(f"  ⚠ 新高產生失敗：{e}")
         _nh_html = "<div class='no-data'>新高資料產生失敗</div>"
     html = html.replace("<!--NEW_HIGH-->", _nh_html, 1)
+
+    print("\n【行事曆】")
+    try:
+        econ_calendar.update()
+        _cal_html = econ_calendar.generate_html()
+    except Exception as e:
+        print(f"  ⚠ 行事曆產生失敗：{e}")
+        _cal_html = "<div class='no-data'>行事曆產生失敗</div>"
+    html = html.replace("<!--CALENDAR-->", _cal_html, 1)
 
     print("\n【當日整理】")
     try:
