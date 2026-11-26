@@ -149,10 +149,16 @@ def _fetch_earnings(cache: dict, ticker: str) -> None:
     d = (r.json() or {}).get("data") or {}
     txt = d.get("reportText") or ""
     m = re.search(r"(\d{2})/(\d{2})/(\d{4})", txt)
-    earn = cache.setdefault("earn", {})
     if m:
         timing = "盤後" if "after market close" in txt else "盤前" if "before market open" in txt else ""
-        earn[ticker] = {"date": f"{m[3]}-{m[1]}-{m[2]}", "timing": timing}
+        new = {"date": f"{m[3]}-{m[1]}-{m[2]}", "timing": timing}
+        # 每家保留多筆：已過的日期留著當歷史；尚未到的日期以最新查到的為準（預估日改了就取代）
+        today = date.today().isoformat()
+        old = cache.setdefault("earn", {}).get(ticker, [])
+        if isinstance(old, dict):   # 舊格式只存一筆
+            old = [old]
+        keep = [e for e in old if e["date"] < today and e["date"] != new["date"]]
+        cache["earn"][ticker] = keep + [new]
 
 
 def update() -> None:
@@ -182,6 +188,8 @@ def update() -> None:
     # 法說會只留近 4 個月
     keep = (today - timedelta(days=100)).strftime("%Y-%m")
     cache["mops"] = {k: v for k, v in cache.get("mops", {}).items() if k >= keep}
+    cache["earn"] = {tk: [e for e in (v if isinstance(v, list) else [v]) if e["date"][:7] >= keep]
+                     for tk, v in cache.get("earn", {}).items()}
     CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
@@ -266,10 +274,13 @@ def build_events() -> list[dict]:
 
     # 美股財報
     watch = manual.get("us_earnings_watch", {})
-    earn = dict(cache.get("earn", {}))
+    earn = []
+    for tk, lst in cache.get("earn", {}).items():
+        earn += [(tk, e) for e in (lst if isinstance(lst, list) else [lst])]
     for m in manual.get("us_earnings_manual", []):
-        earn[m["ticker"]] = {"date": m["date"], "timing": m.get("timing", ""), "manual": True}
-    for tk, e in earn.items():
+        earn = [(tk, e) for tk, e in earn if not (tk == m["ticker"] and e["date"] == m["date"])]
+        earn.append((m["ticker"], {"date": m["date"], "timing": m.get("timing", ""), "manual": True}))
+    for tk, e in earn:
         if tk not in watch:
             continue
         timing = e.get("timing", "")
