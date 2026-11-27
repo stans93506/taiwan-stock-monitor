@@ -63,9 +63,41 @@ def _fetch_ff(cache: dict) -> None:
     n = 0
     for e in r.json():
         if e.get("country") == "USD" and e.get("impact") == "High":
-            ff[f"{e['title']}|{e['date']}"] = {"title": e["title"], "dt": e["date"]}
+            ff[f"{e['title']}|{e['date']}"] = {"title": e["title"], "dt": e["date"],
+                                               "fc": e.get("forecast") or "", "prev": e.get("previous") or ""}
             n += 1
     print(f"  [行事曆] ForexFactory 本週美國高重要性事件 {n} 筆")
+
+
+# BLS 官方 API（免金鑰）：用指數算公布值。非農＝就業人數月增（千人），CPI／PPI＝季調指數月增率
+BLS_SERIES = {"NFP": "CES0000000001", "CPI": "CUSR0000SA0", "PPI": "WPSFD4"}
+
+
+def _fetch_bls(cache: dict) -> None:
+    r = requests.post("https://api.bls.gov/publicAPI/v1/timeseries/data/", headers=_UA, timeout=30,
+                      json={"seriesid": list(BLS_SERIES.values())}).json()
+    if r.get("status") != "REQUEST_SUCCEEDED":
+        raise RuntimeError(r.get("message"))
+    bls = cache.setdefault("bls", {})
+    for s in r["Results"]["series"]:
+        bls[s["seriesID"]] = {f"{x['year']}-{x['period'][1:]}": float(x["value"])
+                              for x in s["data"] if x["period"].startswith("M") and x["period"] != "M13"
+                              and re.fullmatch(r"-?\d+(\.\d+)?", x["value"])}   # 缺值為 "-"
+    print(f"  [行事曆] BLS 公布值更新（最新 {max(bls[BLS_SERIES['NFP']])}）")
+
+
+def _bls_value(cache: dict, key: str, ym: str):
+    """回傳 (公布值字串, 數值)；該月尚未公布則 (None, None)"""
+    s = cache.get("bls", {}).get(BLS_SERIES.get(key, ""), {})
+    y, m = map(int, ym.split("-"))
+    prev = f"{y - (m == 1)}-{12 if m == 1 else m - 1:02d}"
+    if ym not in s or prev not in s:
+        return None, None
+    if key == "NFP":
+        v = s[ym] - s[prev]
+        return f"{v:.0f}K", v
+    v = round((s[ym] / s[prev] - 1) * 100, 1)
+    return f"{v:.1f}%", v
 
 
 def _fetch_fomc(cache: dict) -> None:
@@ -157,6 +189,10 @@ def update() -> None:
         jobs.append((f"mops{ym}", 6, lambda ym=ym: _fetch_mops(cache, ym)))
     for tk in manual.get("us_earnings_watch", {}):
         jobs.append((f"earn{tk}", 24, lambda tk=tk: _fetch_earnings(cache, tk)))
+    # BLS 公布值：近 3 天有非農／CPI／PPI 公布就每小時查一次（公布後盡快抓到），平常一天一次
+    recent = any(s["key"] in BLS_SERIES and 0 <= (today - date.fromisoformat(s["date"])).days <= 3
+                 for s in manual.get("us_data", []))
+    jobs.append(("bls", 1 if recent else 24, lambda: _fetch_bls(cache)))
     for key, hours, fn in jobs:
         if not _stale(cache, key, hours):
             continue
@@ -193,6 +229,12 @@ def _settlement_days(holidays: set, start: date, end: date) -> list[date]:
     return out
 
 
+def _num(s: str):
+    """'150K'、'0.3%'、'-20K' → 數值；無法解析回傳 None"""
+    m = re.fullmatch(r"\s*(-?\d+(?:\.\d+)?)\s*[K%]?\s*", s or "")
+    return float(m[1]) if m else None
+
+
 def _is_invited(desc: str) -> bool:
     """公開資訊觀測站沒有獨立欄位，從摘要判斷：受券商等邀請參加的論壇 vs 公司自己舉辦"""
     return bool(re.search(r"受邀|邀請|應邀|證券.{0,8}(舉辦|主辦|合辦)|論壇|Forum|Conference|Corporate Day|Tech Tour",
@@ -205,17 +247,18 @@ def build_events() -> list[dict]:
     start, end = today - timedelta(days=62), today + timedelta(days=400)
     ev = []
 
-    def add(d: datetime | date, t: str, cat: str, title: str, note: str = "", st: str = ""):
+    def add(d: datetime | date, t: str, cat: str, title: str, note: str = "", st: str = "", **extra):
         dd = d.date() if isinstance(d, datetime) else d
         if start <= dd <= end:
-            ev.append({"d": dd.isoformat(), "t": t, "cat": cat, "title": title, "note": note, "st": st})
+            ev.append({"d": dd.isoformat(), "t": t, "cat": cat, "title": title, "note": note, "st": st, **extra})
 
     # 美國數據：手動日程＋FOMC，用 ForexFactory 核對
     ff = []
     for e in cache.get("ff", {}).values():
         dt = datetime.fromisoformat(e["dt"])
         key = next((k for pat, k in FF_KEY if re.search(pat, e["title"])), None)
-        ff.append({"title": e["title"], "et": dt.astimezone(ET), "key": key})
+        ff.append({"title": e["title"], "et": dt.astimezone(ET), "key": key,
+                   "fc": e.get("fc", ""), "prev": e.get("prev", "")})
     sched = [dict(s) for s in manual.get("us_data", [])]
     sched += [{"key": "FOMC", "date": f["date"], "time_et": "14:00",
                "ref": "含經濟預測" if f.get("sep") else ""} for f in cache.get("fomc", [])]
@@ -223,7 +266,7 @@ def build_events() -> list[dict]:
     for s in sched:
         et_date = date.fromisoformat(s["date"])
         hit = [f for f in ff if f["key"] == s["key"] and abs((f["et"].date() - et_date).days) <= 10]
-        st = ""
+        st, f = "", None
         if hit:
             f = min(hit, key=lambda f: abs((f["et"].date() - et_date).days))
             st = "confirmed" if f["et"].date() == et_date else "corrected"
@@ -235,15 +278,31 @@ def build_events() -> list[dict]:
         note = f"美東 {et_date.month}/{et_date.day} {hm}" + (f"；{s['ref']}" if s.get("ref") else "")
         if st == "corrected":
             note += f"；原定 {s['date'][5:].replace('-', '/')}，已依 ForexFactory 更正"
+        # 預估／前值來自 ForexFactory（只有當週抓得到）；公布值來自 BLS（非農、CPI、PPI）
+        vals = {"fc": f["fc"] if f else "", "prev": f["prev"] if f else "", "act": ""}
+        rm = re.match(r"(\d{1,2})月", s.get("ref", ""))
+        if s["key"] in BLS_SERIES and rm:
+            m = int(rm[1])
+            rel = date.fromisoformat(s["date"])
+            ym = f"{rel.year - (m > rel.month)}-{m:02d}"
+            vals["act"], av = _bls_value(cache, s["key"], ym)
+            vals["act"] = vals["act"] or ""
+            if not vals["prev"]:
+                pm = f"{int(ym[:4]) - (m == 1)}-{12 if m == 1 else m - 1:02d}"
+                vals["prev"] = _bls_value(cache, s["key"], pm)[0] or ""
+            fcn = _num(vals["fc"])
+            if av is not None and fcn is not None and av != fcn:
+                vals["cmp"] = "高於預期" if av > fcn else "低於預期"
         add(tw, tw.strftime("%H:%M"), "fomc" if s["key"] == "FOMC" else "us",
-            US_NAMES[s["key"]], note, st)
+            US_NAMES[s["key"]], note, st, **{k: v for k, v in vals.items() if v})
     for f in ff:
         slot = (f["et"].date().isoformat(), f["et"].strftime("%H:%M"))
         if f["key"] or slot in used_slots:
             continue
         tw = f["et"].astimezone(TW)
         add(tw, tw.strftime("%H:%M"), "us", FF_ZH.get(f["title"], f["title"]),
-            f"美東 {f['et'].month}/{f['et'].day} {slot[1]}；ForexFactory 本週高重要性事件", "confirmed")
+            f"美東 {f['et'].month}/{f['et'].day} {slot[1]}；ForexFactory 本週高重要性事件", "confirmed",
+            **{k: f[k] for k in ("fc", "prev") if f[k]})
 
     # 台指期結算
     for d in _settlement_days(set(cache.get("holidays", [])), start, end):
@@ -301,6 +360,7 @@ def generate_html() -> str:
 .cal-dn{{font-weight:700;margin-bottom:.15rem}}
 .cal-ev{{display:block;margin:.15rem 0;padding:.1rem .35rem;border-radius:.25rem;border-left:4px solid;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}}
 .cal-ev .tm{{margin-right:.3rem;font-weight:700}}
+.cal-val{{display:block;font-weight:400;font-size:.72rem;color:var(--text);opacity:.85;margin-top:.05rem}}
 .cal-badge{{font-size:.68rem;padding:0 .25rem;border-radius:.2rem;margin-left:.2rem}}
 .cal-detail{{margin-top:.6rem;padding:.6rem .8rem;border:1px solid var(--border);border-radius:.4rem;background:var(--surface);font-size:.88rem;display:none}}
 .cal-note{{font-size:.8rem;color:var(--muted)}}
@@ -334,6 +394,14 @@ def generate_html() -> str:
   }}).map(function(k){{
     return '<label><input type="checkbox" data-cat="'+k+'" checked> <span style="color:'+CAT[k][1]+'">■</span> '+CAT[k][0]+'</label>';
   }}).join(' ');
+  // 預估／前值／公布值；公布值高於預期紅、低於預期綠
+  function vals(e, sep){{
+    var p = [];
+    if (e.fc) p.push('預估 ' + esc(e.fc));
+    if (e.prev) p.push('前值 ' + esc(e.prev));
+    if (e.act) p.push('公布 <b style="color:' + (e.cmp === '高於預期' ? '#ff6b6b' : e.cmp === '低於預期' ? '#4caf50' : 'inherit') + '">' + esc(e.act) + '</b>');
+    return p.length ? '<span class="cal-val">' + p.join(sep) + '</span>' : '';
+  }}
   function render(){{
     document.getElementById('calTitle').textContent = cur.getFullYear() + ' 年 ' + (cur.getMonth()+1) + ' 月';
     var first = new Date(cur), start = new Date(cur); start.setDate(1 - first.getDay());
@@ -347,7 +415,7 @@ def generate_html() -> str:
       h += '<div class="'+cls+'"><div class="cal-dn">'+d.getDate()+'</div>' + evs.map(function(e){{
         var c = CAT[e.cat][1], b = ST[e.st] ? '<span class="cal-badge" style="background:'+ST[e.st][1]+'">'+ST[e.st][0]+'</span>' : '';
         return '<span class="cal-ev" data-i="'+e.i+'" style="border-color:'+c+';background:'+c+'2e" title="'+esc(e.title+'　'+e.note)+'">'
-          + (e.t ? '<span class="tm" style="color:'+c+'">'+esc(e.t)+'</span>' : '') + esc(e.title) + b + '</span>';
+          + (e.t ? '<span class="tm" style="color:'+c+'">'+esc(e.t)+'</span>' : '') + esc(e.title) + b + vals(e, '｜') + '</span>';
       }}).join('') + '</div>';
     }}
     document.getElementById('calGrid').innerHTML = h;
@@ -359,6 +427,7 @@ def generate_html() -> str:
     box.style.display = 'block';
     box.innerHTML = '<b style="color:'+CAT[e.cat][1]+'">'+CAT[e.cat][0]+'</b>　'+e.d.replace(/-/g,'/')+' '+esc(e.t)
       + '　<b>'+esc(e.title)+'</b>' + (ST[e.st] ? '<span class="cal-badge" style="background:'+ST[e.st][1]+'">'+ST[e.st][0]+'</span>' : '')
+      + (e.fc || e.prev || e.act ? '<div style="margin-top:.3rem">' + vals(e, '　') + (e.cmp ? '　（' + e.cmp + '）' : '') + '</div>' : '')
       + '<div class="cal-note" style="margin-top:.3rem">'+esc(e.note)+'</div>';
   }});
   document.getElementById('calFilters').addEventListener('change', function(ev){{ on[ev.target.dataset.cat] = ev.target.checked; render(); }});
