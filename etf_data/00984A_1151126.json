@@ -10,7 +10,7 @@
       "code": "3017",
       "name": "奇鋐",
       "shares": 120000,
-      "weight": 3.87
+      "weight": 3.85
     },
     {
       "code": "6505",
@@ -535,5 +535,5 @@
       "weight": 0.06
     }
   ],
-  "fetch_time": "14:43"
+  "fetch_time": "15:17"
 }
