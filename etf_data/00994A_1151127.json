@@ -139,15 +139,15 @@
       "weight": 0.93
     },
     {
-      "code": "6526",
-      "name": "達發",
-      "shares": 39000,
-      "weight": 0.9
-    },
-    {
       "code": "2382",
       "name": "廣達",
       "shares": 90000,
+      "weight": 0.9
+    },
+    {
+      "code": "6526",
+      "name": "達發",
+      "shares": 39000,
       "weight": 0.9
     },
     {
@@ -211,5 +211,5 @@
       "weight": 0.3
     }
   ],
-  "fetch_time": "18:08"
+  "fetch_time": "19:37"
 }
